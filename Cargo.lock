@@ -272,12 +272,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-once-cell"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
-
-[[package]]
 name = "async-process"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -948,9 +942,9 @@ dependencies = [
 
 [[package]]
 name = "backend-android-core"
-version = "3.0.0"
+version = "6.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "2ea6da8a68e90ea8ae3188fc647732a4a4b2b90fd2653ad019159104c86fa0fe"
+checksum = "31d5983c92740dac32e915cfad86f8d7feee34797b5bceab8ea93a54ea64b979"
 dependencies = [
  "android_logger",
  "jni 0.21.1",
@@ -962,9 +956,9 @@ dependencies = [
 
 [[package]]
 name = "backend-android-mobile"
-version = "4.0.0"
+version = "9.1.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "fbd66764e87bc5104cb141a52d6eb7f5652286eb57eb7da8bb2c2479dc1524d9"
+checksum = "6ee48178cb1bb833952336c57b9c078ecc6ae5f0d89636e84fbaeea35e44b6eb"
 dependencies = [
  "android_logger",
  "backend-android-core",
@@ -985,9 +979,9 @@ dependencies = [
 
 [[package]]
 name = "backend-apple-core"
-version = "3.0.0"
+version = "6.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "4c3754b59a79dd68494c9c983afea00c23a01c78c1354c3a3caa130dfbbacb19"
+checksum = "0fe11b9162d7f1537f79a83476ab09bec7f266f70cb9173acff07aa79f8e6e60"
 dependencies = [
  "backend-image-source",
  "block2",
@@ -998,9 +992,9 @@ dependencies = [
 
 [[package]]
 name = "backend-email"
-version = "3.0.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "1fcbf8aa7db692cf69b091582a9953704109f0fbfd335c55d894514237690b2c"
+checksum = "e53deccb9a709d2d446bf11c706392680f889c6c5bf5b8e22280bf3b747d902b"
 dependencies = [
  "css",
  "runtime-scene",
@@ -1011,9 +1005,9 @@ dependencies = [
 
 [[package]]
 name = "backend-image-source"
-version = "3.0.0"
+version = "6.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "69df1b8690006c08cb55557caa0366833b5224ba7273c80b8088e4b7c2d45b56"
+checksum = "06d8af961a1a8c66ae40108493e1ef6704371058421fb2f6a2f38900e8245d86"
 dependencies = [
  "resvg",
  "runtime-shared",
@@ -1021,9 +1015,9 @@ dependencies = [
 
 [[package]]
 name = "backend-ios-core"
-version = "3.0.0"
+version = "6.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "0c4180e75655975872915f0a23818e4cb1521fa1a9de49780fecaa851b2c6cd3"
+checksum = "ca9dca62652bf13586971422a71773480b73699df7b6961e29eb1ba3be35c969"
 dependencies = [
  "backend-apple-core",
  "block2",
@@ -1037,9 +1031,9 @@ dependencies = [
 
 [[package]]
 name = "backend-ios-mobile"
-version = "4.0.0"
+version = "9.1.1"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "c02b86c49af15e92e29e5722297b47249e3625a769ca8229b8344c082b79cbef"
+checksum = "feb5993572508c4ea569a9fc2af7f46152959c653436c6c0423f3fa83b852d48"
 dependencies = [
  "backend-apple-core",
  "backend-image-source",
@@ -1059,9 +1053,9 @@ dependencies = [
 
 [[package]]
 name = "backend-linux"
-version = "3.0.2"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "97fb57822b314a54697a6573aff110cf0802d7f2bb287b2558277a2f8fe304f0"
+checksum = "4f15241e5aa845fc397e5022a59b5d29dbc120d3624980956cedbc4b43944bd0"
 dependencies = [
  "backend-image-source",
  "gtk4",
@@ -1079,9 +1073,9 @@ dependencies = [
 
 [[package]]
 name = "backend-macos"
-version = "4.0.0"
+version = "9.1.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "d7632caf6ee5cb03016448559c3a808b96930b0227f527e79eefe4d6bafcdc16"
+checksum = "a4f44dd836522d9832cfdb8cb6e7b404a600c68b80f22020cc06da94e8d84491"
 dependencies = [
  "backend-apple-core",
  "backend-image-source",
@@ -1100,9 +1094,9 @@ dependencies = [
 
 [[package]]
 name = "backend-web"
-version = "5.0.0"
+version = "10.1.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "dca509607edfc81f5e149f9cd7c4e43083a17be35244686988a0af374d387f50"
+checksum = "3945aaed3377d6e19b56178cf3a2057772190063e56ba4f5c3444e2c4ae44e92"
 dependencies = [
  "css",
  "inventory",
@@ -1118,9 +1112,9 @@ dependencies = [
 
 [[package]]
 name = "backend-windows"
-version = "4.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "148ac500fec9b5cb8b27165ae5e109d98a67e868d2905b47f9b6fdebdd3a361d"
+checksum = "b703c239f9deb2e4b0b6549db0b8e5f970309015ddb9f1250bb5c93769b1de8b"
 dependencies = [
  "backend-image-source",
  "image-webp",
@@ -1199,7 +1193,7 @@ dependencies = [
  "bitflags 2.13.2",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1340,9 +1334,9 @@ dependencies = [
 
 [[package]]
 name = "cache"
-version = "3.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "baa92fdcf84306f642417ac0792b47def7824303dc5b499530ceb8626692db74"
+checksum = "6237a40e8f727d333368e15d688decebbda498dade9202a9c53530df6fd96dbf"
 dependencies = [
  "redis 0.27.6",
  "serde",
@@ -1472,9 +1466,9 @@ dependencies = [
 
 [[package]]
 name = "camera"
-version = "3.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "c022d7f9b6199726b87ea6f73b81a2ba3d8d4c77ceac0cb501a90d0ebec1bd49"
+checksum = "6399709810bf1380707ba16e3e126f459e1fc7fc60ccd0b48a899b2c08be2691"
 dependencies = [
  "async-channel",
  "futures-channel",
@@ -1746,9 +1740,9 @@ dependencies = [
 
 [[package]]
 name = "clipboard"
-version = "3.0.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "f9611824813ba42a2be48ef2e4cefdbd79dce1a7023bcaf6e3064e04f1e6ca8a"
+checksum = "797417a17a90c040e5693a1f23b52226f6919e651b26522c946d2c5594a063ff"
 dependencies = [
  "arboard",
  "jni 0.21.1",
@@ -2072,9 +2066,9 @@ dependencies = [
 
 [[package]]
 name = "css"
-version = "3.0.0"
+version = "6.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "287f0391f2f94df946ded2a95e5ba3c5eb790ef119241ff1deefb6b433d71a84"
+checksum = "0f929098cac395655533a1fa9bd310109978d6002ca970396aa7f5b9864ba8a7"
 dependencies = [
  "runtime-shared",
 ]
@@ -2233,9 +2227,9 @@ dependencies = [
 
 [[package]]
 name = "deep-link"
-version = "4.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "eaa4595d1a5417e66fbd83fe78e92e4a72ccdb6a9e0f0a8aa351d407e2edeefa"
+checksum = "b684920a46a8b533c09791c4368506214ec0f90dec8a76958b201ceeded9306c"
 dependencies = [
  "runtime-shared",
  "url",
@@ -2379,9 +2373,9 @@ dependencies = [
 
 [[package]]
 name = "dnd"
-version = "3.0.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "2fcc1eb785db7e93b2ab945e335b89c6de24a19e4a9cf20cb770dc7d5e35b0ea"
+checksum = "61062e6e495d1455a2fa09760939ada6e897b27560dcf8544a1412d30fc60407"
 dependencies = [
  "runtime-core",
  "runtime-shared",
@@ -2532,9 +2526,9 @@ dependencies = [
 
 [[package]]
 name = "email"
-version = "3.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "2c04591fffb12f136b7d23e6ce2524c067b7a4977e1eba524430a9b6527bd0fe"
+checksum = "ba5fc7cdd89cddbed3563e958e2e520712d5379013d8c612a06f3e8ec91b5c2e"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -2743,11 +2737,12 @@ dependencies = [
 
 [[package]]
 name = "file-picker"
-version = "3.0.1"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "7418ffb5e8f6dc1075265f951af816fff64fdbe2de21430d4c71d3598496391c"
+checksum = "af22d57e3e77ee333a4d4198afc0b683a08603bf5e73abbccde2b3be66039744"
 dependencies = [
  "ashpd",
+ "backend-android-mobile",
  "block2",
  "futures-channel",
  "jni 0.21.1",
@@ -3216,12 +3211,6 @@ dependencies = [
  "pkg-config",
  "system-deps",
 ]
-
-[[package]]
-name = "grid"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36119f3a540b086b4e436bb2b588cf98a68863470e0e880f4d0842f112a3183a"
 
 [[package]]
 name = "group"
@@ -3887,9 +3876,9 @@ dependencies = [
 
 [[package]]
 name = "icons-lucide"
-version = "3.0.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "c6d77d78e1f26da45601af6c82ee09acb2eb80898c7c7278df5bede68aa27884"
+checksum = "ae3c05da6f79d6b0ef8ad5ec0a849f554e933120504a4e604e43a0b28fabe87d"
 dependencies = [
  "runtime-core",
 ]
@@ -3987,9 +3976,9 @@ dependencies = [
 
 [[package]]
 name = "idea-theme"
-version = "6.0.0"
+version = "12.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "7288e18b9c285a7e6fa3ceaffbc78dbd22cf7a2bc61958d6a618dd4a047d8f18"
+checksum = "0ccf0a33f8c7197734c02a3ddf3ff6a5e1f7d58ac67e7dabf5c72032b908833d"
 dependencies = [
  "runtime-core",
  "runtime-tls",
@@ -3998,9 +3987,9 @@ dependencies = [
 
 [[package]]
 name = "idea-ui"
-version = "13.0.0"
+version = "22.3.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "2ddb6ad23cd3c44cbc3107cd56e6629a26a840c4d4ca9bbcd0ddb36c467842c2"
+checksum = "a728c9a37e5c8b37f0c92a115efdfcdf21b6682f94487ef1112d804fdace7c67"
 dependencies = [
  "dnd",
  "idea-theme",
@@ -4012,9 +4001,9 @@ dependencies = [
 
 [[package]]
 name = "idea-ui-mail"
-version = "3.0.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "76fb7e87e1169eee0ecf4e1aa021bfb2305f237d713997d615d30ee1df878af0"
+checksum = "9efd4a23a014e696eedaa02219c5448b5a6ea37d43b28d08ebee6ed603ecc3d8"
 dependencies = [
  "runtime-core",
  "runtime-vocabulary",
@@ -4022,9 +4011,9 @@ dependencies = [
 
 [[package]]
 name = "idea-ui-nav"
-version = "10.0.0"
+version = "19.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "11557c4a7735c07a4e542e8917e4cc7d4fdf7e3b2a2c703759621d04222bd4ab"
+checksum = "273c5e44b9eac03400f1708d57fa45f08597248d681942a5f52df53c0c98161f"
 dependencies = [
  "idea-theme",
  "idea-ui",
@@ -4034,9 +4023,9 @@ dependencies = [
 
 [[package]]
 name = "idealyst"
-version = "4.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "46ab4688878a19d29662b55b9ce91ae520b43cbdaf029f2d217b560f21577c74"
+checksum = "dac31741bbbff0de8942b7faf58ced5f22784a34e13956e1626764b2cc123c5d"
 dependencies = [
  "backend-web",
  "idealyst-macros",
@@ -4050,9 +4039,9 @@ dependencies = [
 
 [[package]]
 name = "idealyst-macros"
-version = "1.5.2"
+version = "1.5.3"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "23e4e094459ef8987591282f1ec36b216b0858059c59b8e22e506f4c053070c5"
+checksum = "5fe0d7fb5dd1a549aefe65819096e7466950c1d29bf20732c135c31ae4dc7499"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4818,7 +4807,7 @@ dependencies = [
 
 [[package]]
 name = "media-stream"
-version = "1.8.1"
+version = "1.10.0"
 dependencies = [
  "futures-channel",
  "runtime-tls",
@@ -4990,9 +4979,9 @@ dependencies = [
 
 [[package]]
 name = "net"
-version = "1.7.3"
+version = "1.8.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "cee4d0f05bcb4df99f1b3f793defdf6c3dd291831218503f46a7822d2ed06d92"
+checksum = "f9ed108dd28e7145a6bbb68d2eed6081741fd6c72feb53b49976e6f12812c9c7"
 dependencies = [
  "block2",
  "futures-channel",
@@ -5725,10 +5714,11 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "permissions"
-version = "3.0.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "c45b1bbe7ab3553288130c6b33e41a7b56eb7570313e4879db4daf5c6ff78f05"
+checksum = "ed265d3cc3fc0fa90f0c180b88daf47d734fdd73e3e1fcb35d11dd4b4f3f8547"
 dependencies = [
+ "backend-android-mobile",
  "backend-windows",
  "block2",
  "jni 0.21.1",
@@ -6139,9 +6129,9 @@ dependencies = [
 
 [[package]]
 name = "pubsub"
-version = "3.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "1172e307ee463ee6bf0dd271fe067403777d5aadb272461d0772c54991dc925e"
+checksum = "7333cd8a88338c32de1745d0d52d80bbbeecf2339e494ff6d9a02f50bca28048"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -6346,7 +6336,7 @@ dependencies = [
 
 [[package]]
 name = "random"
-version = "1.0.0"
+version = "6.0.0"
 dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
@@ -6671,9 +6661,9 @@ dependencies = [
 
 [[package]]
 name = "runtime-core"
-version = "3.2.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "f4eaf9384117c2faba61a88a50f7add58e4ca0d7bc4772106a8cdc01adff7ad4"
+checksum = "0b544f30998e910386b5ca1215ded4b9dcb552c7359fb0a6cf14078f53192869"
 dependencies = [
  "runtime-macros",
  "runtime-shared",
@@ -6682,9 +6672,9 @@ dependencies = [
 
 [[package]]
 name = "runtime-layout"
-version = "3.0.0"
+version = "6.0.1"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "d38c66fa0178f92ef26a8579357a8c9cac2559c85937e9aeadbff5e0e153be0f"
+checksum = "a6b1490482a0d994dda3a7af7ad92d4585ce6ec8c9fccc4eb5e35ef2f28608b2"
 dependencies = [
  "runtime-shared",
  "taffy",
@@ -6692,18 +6682,18 @@ dependencies = [
 
 [[package]]
 name = "runtime-macros"
-version = "1.22.0"
+version = "4.3.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "438757fa7c7a16b8367c31b880f46dadc727fd1fef4b00306b4686effc773662"
+checksum = "e7390813a5759fc5c842c003459994e778a8d812fdd7e32ccb9a38bcfd6b10f8"
 dependencies = [
  "runtime-macros-expand",
 ]
 
 [[package]]
 name = "runtime-macros-expand"
-version = "1.6.0"
+version = "4.4.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "3fa04b67edc34e24ab5513044e6a645074118455a5216a6bf9f5ae0d609562c5"
+checksum = "b6058c2233ee434a0a80639bad027a265fdfab708bea044f7d1d6ff56a9894f5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6714,9 +6704,9 @@ dependencies = [
 
 [[package]]
 name = "runtime-macros-parse"
-version = "1.13.0"
+version = "2.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "ca394ee8f0d72b12549ae90a5900d4aba7d1f151a70ea8a17562fce28cee8005"
+checksum = "679d5e975b1f8b57b2eb59caf532ef3557e2da2d1f5a134e175c8f5e4dac3efa"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6726,9 +6716,9 @@ dependencies = [
 
 [[package]]
 name = "runtime-scene"
-version = "1.11.0"
+version = "2.1.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "168488b7b6dfc09ce2c4272244ba634efdb3bd9d04a70d4108cec68811038d61"
+checksum = "1696f7465d2012caeebc3a4d0b4bed494226dbd8a8eb780731f30187c3d5d5f0"
 dependencies = [
  "runtime-tls",
  "runtime-world",
@@ -6737,15 +6727,16 @@ dependencies = [
 
 [[package]]
 name = "runtime-shared"
-version = "3.1.0"
+version = "6.1.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "9b73752f3968f1fef4e68f16b545ee3eaa0850b19f70872a5eb307d2a7f60263"
+checksum = "ecc601640f145790ac0641d52a1d52014fb3de84cc61bcc8b3239f70057e8916"
 dependencies = [
  "bitflags 2.13.2",
  "log",
  "pollster 0.4.0",
  "raw-window-handle",
  "runtime-tls",
+ "runtime-world",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -6755,22 +6746,22 @@ dependencies = [
 
 [[package]]
 name = "runtime-template"
-version = "1.5.0"
+version = "1.5.1"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "9456101e9030c98823187854ac65f404a8ebf566f9feb7d912571dc9d82a004d"
+checksum = "6680ba7fbceae8c4973f83a6c048d018e951837aadf9f4e5be8cd185f6824f0a"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "runtime-tls"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "runtime-vocabulary"
-version = "4.1.0"
+version = "9.1.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "fcf9dc5ab8434086410d4f0e9aa729453d1e78dfaa9bce94f6914d27dce96f16"
+checksum = "92c60d07af150e053321f17ae205a6a1e413a34c0985212c5a9ef56d2803b330"
 dependencies = [
  "runtime-scene",
  "runtime-shared",
@@ -7239,9 +7230,9 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "3.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "00ff0461be7dced350694144b079e5225f00e4913d9b8458013457b14491f1e7"
+checksum = "e4fa1fdaec1e5c0242edde8d9ef860354e9469d8887584fe6012f196f161871e"
 dependencies = [
  "axum",
  "futures-channel",
@@ -7262,9 +7253,9 @@ dependencies = [
 
 [[package]]
 name = "server-kit"
-version = "3.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "81fe8e0d8e4eb8c29db43e00738a93579799b64c252f1cc230d3bc44f9103b23"
+checksum = "74070ad96f4ac13d7094369c8855310fa5958df0ed883dbde96b64cdcdbba91a"
 dependencies = [
  "cache",
  "getrandom 0.2.17",
@@ -7277,9 +7268,9 @@ dependencies = [
 
 [[package]]
 name = "server-macros"
-version = "1.5.2"
+version = "2.1.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "c145c1bdf18650d2a545c150bbc37136cd387aee4a27438334e7d81a0a832b5c"
+checksum = "9e73d62f06a945a3c054659846e32beb8d4932eab0a463ccc224d95cd719b193"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7865,9 +7856,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "storage"
-version = "3.0.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "215d27c8e4a2e060f65d73eaac2381ebfdc90eaad5db78996fdf124b8e995e26"
+checksum = "0f3a60cc5492be7a9a22537cfba51ad52d956ea540fd0bf6875ba9dcf7465404"
 dependencies = [
  "jni 0.21.1",
  "ndk-context",
@@ -7933,9 +7924,9 @@ dependencies = [
 
 [[package]]
 name = "swap-navigator"
-version = "3.0.0"
+version = "8.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "8cc547413adb10908b7438536ec9d66b6eb4539e07c97a95f5471bb5c016272d"
+checksum = "94dda4e30d3e8bfc372ac24bdc9d3d6f7afaf3a82d0d0507cb30a485a2c8c164"
 dependencies = [
  "runtime-vocabulary",
 ]
@@ -8008,9 +7999,9 @@ dependencies = [
 
 [[package]]
 name = "table"
-version = "7.0.0"
+version = "12.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "adc185bf152d7c98fac5b8398657a3cd2621dc19204b2bcb2a156fdab3cfce6e"
+checksum = "29bd62a6f25e1a3d875ada7c314353312779526e226aaf8d3318dd5f78be5069"
 dependencies = [
  "runtime-scene",
  "runtime-shared",
@@ -8020,14 +8011,13 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.7.7"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab4f4d046dd956a47a7e1a2947083d7ac3e6aa3cfaaead36173ceaa5ab11878c"
+checksum = "31f7bd2d97198df05186f93a3a3c306845f40e8b3c22bf9279cdd7e5cf5fea7d"
 dependencies = [
- "arrayvec",
- "grid",
  "serde",
  "slotmap",
+ "smallvec",
 ]
 
 [[package]]
@@ -8054,7 +8044,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -8975,9 +8965,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "video"
-version = "4.0.0"
+version = "9.0.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "01f1e78b9c1e460001f732d88210a4d1dd38ecb175df7a9c21de89a69df6b5fd"
+checksum = "244f41d7f2c71039608939242fd004707137155af5746ba77a0dd544ea57d902"
 dependencies = [
  "backend-android-core",
  "backend-android-mobile",
@@ -9210,9 +9200,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-split-macro"
-version = "1.5.3"
+version = "1.6.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "4cdc6d7b51491914a15eb81d73ac1356c3502684be5e43d7638e380328df8e31"
+checksum = "d0eca21caf464ac3f28e2529e536639dcec624cdff4c757aeeeeb9d5910b5679"
 dependencies = [
  "base16",
  "digest 0.10.7",
@@ -9224,11 +9214,10 @@ dependencies = [
 
 [[package]]
 name = "wasm-splitter"
-version = "1.5.2"
+version = "1.6.0"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "1b62b9818476e05a5b90af885579d7943176894275f3a45bd240f7a9235409e7"
+checksum = "5c7fad9db2c372ae0cf1ab3a1957fc213e39d4bea521a3d96af60864f975b9ae"
 dependencies = [
- "async-once-cell",
  "wasm-split-macro",
 ]
 
@@ -9247,7 +9236,7 @@ dependencies = [
 
 [[package]]
 name = "web-glue"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "wasm-bindgen",
 ]
@@ -9407,7 +9396,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -10145,9 +10134,9 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[package]]
 name = "zone-offset"
-version = "1.6.0"
+version = "1.6.1"
 source = "sparse+https://crates.idealyst.io/index/"
-checksum = "a7d07602f74ed2877802ad70b974dbf20720410420587c9b0076188b8e09d0ed"
+checksum = "d9f0ecdc654fbe15517798ab8ae23e18879625e8023d48b33a11ce176ffbf484"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",

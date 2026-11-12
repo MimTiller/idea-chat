@@ -1129,15 +1129,16 @@ pub fn app() -> Element {
                 let (on_join, open_settings) = (on_join.clone(), open_settings.clone());
                 let toggle = theme_toggle(dark);
                 // A fresh random key, in place of whatever is typed.
-                let new_key = Adornment::Button(
-                    DICES,
-                    Rc::new(move || {
+                let new_key = Adornment::Button {
+                    icon: DICES,
+                    label: Some("New random key".to_string()),
+                    on_press: Rc::new(move || {
                         #[cfg(target_arch = "wasm32")]
                         if let Some(key) = call::new_key() {
                             e2ee_key.set(key);
                         }
                     }),
-                );
+                };
                 ui! {
                     view(style = || StyleApplication::new(LobbyCard::sheet())) {
                         Card() {

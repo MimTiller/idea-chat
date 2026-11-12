@@ -814,6 +814,7 @@ pub fn player(stream: MediaStream, screen: bool) -> Element {
         controls: false,
         loop_playback: false,
         object_fit: if screen { video_sdk::ObjectFit::Contain } else { video_sdk::ObjectFit::Cover },
+        on_first_frame: None,
     })
     .with_style(|| StyleApplication::new(Player::sheet()))
     .into()

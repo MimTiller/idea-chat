@@ -80,27 +80,27 @@ chat-db     = { path = "crates/chat-db" }
 chat-api    = { path = "crates/chat-api" }
 
 # Framework, from the idealyst registry (crates.idealyst.io).
-idealyst           = { version = "4.0.0", registry = "idealyst" }
-runtime-core       = { version = "3.2.0", registry = "idealyst" }
-runtime-vocabulary = { version = "4.1.0", registry = "idealyst" }
-runtime-scene      = { version = "1.11.0", registry = "idealyst" }
-idea-ui            = { version = "13.0.0", registry = "idealyst" }
-idea-ui-nav        = { version = "10.0.0", registry = "idealyst" }
-icons-lucide       = { version = "3.0.0", registry = "idealyst" }
-microphone         = { version = "3.0.1", registry = "idealyst" }
-server             = { version = "3.0.0", registry = "idealyst" }
-server-kit         = { version = "3.0.0", registry = "idealyst" }
-cache              = { version = "3.0.0", registry = "idealyst" }
+idealyst           = { version = "9.0.0", registry = "idealyst" }
+runtime-core       = { version = "8.0.0", registry = "idealyst" }
+runtime-vocabulary = { version = "9.1.0", registry = "idealyst" }
+runtime-scene      = { version = "2.1.0", registry = "idealyst" }
+idea-ui            = { version = "22.3.0", registry = "idealyst" }
+idea-ui-nav        = { version = "19.0.0", registry = "idealyst" }
+icons-lucide       = { version = "8.0.0", registry = "idealyst" }
+microphone         = { version = "9.0.0", registry = "idealyst" }
+server             = { version = "9.0.0", registry = "idealyst" }
+server-kit         = { version = "9.0.0", registry = "idealyst" }
+cache              = { version = "9.0.0", registry = "idealyst" }
 credentials        = { version = "1.5.3", registry = "idealyst" }
-net                = { version = "1.7.3", registry = "idealyst" }
-storage            = { version = "3.0.0", registry = "idealyst" }
-email              = { version = "3.0.0", registry = "idealyst", default-features = false }
-pubsub             = { version = "3.0.0", registry = "idealyst", default-features = false }
-swap-navigator     = { version = "3.0.0", registry = "idealyst" }
-deep-link          = { version = "4.0.0", registry = "idealyst" }
-file-picker        = { version = "3.0.1", registry = "idealyst" }
-clipboard          = { version = "3.0.0", registry = "idealyst" }
-idea-ui-mail       = { version = "3.0.0", registry = "idealyst" }
+net                = { version = "1.8.0", registry = "idealyst" }
+storage            = { version = "8.0.0", registry = "idealyst" }
+email              = { version = "9.0.0", registry = "idealyst", default-features = false }
+pubsub             = { version = "9.0.0", registry = "idealyst", default-features = false }
+swap-navigator     = { version = "8.0.0", registry = "idealyst" }
+deep-link          = { version = "9.0.0", registry = "idealyst" }
+file-picker        = { version = "8.0.0", registry = "idealyst" }
+clipboard          = { version = "8.0.0", registry = "idealyst" }
+idea-ui-mail       = { version = "8.0.0", registry = "idealyst" }
 # denoise is not yet published to the registry, so it stays by path — and a
 # path crate resolves its `workspace = true` deps from idealyst-native's root,
 # which are paths too. media-stream must be a path dep so denoise sees the same

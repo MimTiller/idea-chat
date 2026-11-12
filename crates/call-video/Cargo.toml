@@ -22,10 +22,10 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["Window", "Performance", "console", "MediaStream"] }
 # The camera, the `<video>` that shows a stream, and web-glue — the
 # framework's JS boundary — for WebCodecs, which nothing in the SDK wraps yet.
-camera = { version = "3.0.0", registry = "idealyst" }
-permissions = { version = "3.0.0", registry = "idealyst" }
+camera = { version = "9.0.0", registry = "idealyst" }
+permissions = { version = "8.0.0", registry = "idealyst" }
 # Renamed: this crate's own name is close enough to confuse.
-video_sdk = { package = "video", version = "4.0.0", registry = "idealyst" }
+video_sdk = { package = "video", version = "9.0.0", registry = "idealyst" }
 # `wasm-bindgen-bridge`: a screen share's stream is a web-glue handle, and its
 # audio goes to `audio-io`, which speaks web-sys — the bridge crosses between.
-web-glue = { version = "2.1.0", registry = "idealyst", features = ["wasm-bindgen-bridge"] }
+web-glue = { version = "2.2.0", registry = "idealyst", features = ["wasm-bindgen-bridge"] }

@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use chat_model::{Id, Presence};
 use idea_ui::{
-    tone, typography_kind, variant, Avatar, AvatarSize, Badge, Button, Icon, IconButton, IconButtonSize, IdeaThemeRef,
+    tone, typography_kind, variant, Avatar, AvatarSize, Tag, Button, Icon, IconButton, IconButtonSize, IdeaThemeRef,
     IconButtonVariant, ToneRef, Tooltip, Typography,
 };
 use runtime_core::{
@@ -159,7 +159,7 @@ pub fn Count(count: u32) -> Element {
     });
     ui! {
         if count.get() > 0 {
-            Badge(label = rx!(label.get()), tone = tone::Danger, variant = variant::Filled)
+            Tag(label = rx!(label.get()), tone = tone::Danger, variant = variant::Filled)
         }
     }
 }
