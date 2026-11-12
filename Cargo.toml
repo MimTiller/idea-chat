@@ -101,16 +101,20 @@ deep-link          = { version = "9.0.0", registry = "idealyst" }
 file-picker        = { version = "8.0.0", registry = "idealyst" }
 clipboard          = { version = "8.0.0", registry = "idealyst" }
 idea-ui-mail       = { version = "8.0.0", registry = "idealyst" }
-# denoise is not yet published to the registry, so it stays by path — and a
-# path crate resolves its `workspace = true` deps from idealyst-native's root,
-# which are paths too. media-stream must be a path dep so denoise sees the same
-# copy. The [patch] section below redirects registry crates' transitive copies
-# to these paths too, giving the whole graph exactly one instance of each.
-denoise            = { path = "../idealyst-native/crates/sdk/client/denoise" }
-media-stream       = { path = "../idealyst-native/crates/sdk/client/media-stream" }
+# denoise is not yet published to the registry, so it comes from the public
+# idealyst-native repo, pinned to a commit (no sibling checkout needed, so the
+# crates here also build as git dependencies of other apps). Its own deps
+# resolve from that repo's workspace. media-stream is the registry release; the
+# [patch] section below points the registry copies of the crates denoise drags
+# in at the same commit, giving this workspace exactly one instance of each.
+denoise            = { git = "https://github.com/IdealystIO/idealyst-native", rev = "26a4aff7434b1c6169bbad6131ba4bedeff7f8c2" }
+media-stream       = { version = "1.10.0", registry = "idealyst" }
 
-# Redirect registry crates to the local paths that denoise drags in, so that
-# every crate — path-based or registry-based — resolves to a single copy.
+# Redirect registry crates to the same idealyst-native commit denoise comes
+# from, so every crate — git-based or registry-based — resolves to one copy.
+# (A [patch] only applies when this repo is the workspace being built; an app
+# that links these crates as git dependencies and leaves `neural` off never
+# builds denoise, so it needs no patch.)
 #
 # web-glue is not optional. The path media-stream pulls web-glue by path, the
 # registry crates pull the published one, and both copies export the same
@@ -121,6 +125,6 @@ media-stream       = { path = "../idealyst-native/crates/sdk/client/media-stream
 # runtime-tls likewise: the path media-stream pulls it by path, everything else
 # from the registry, and two copies means two sets of thread-locals.
 [patch."sparse+https://crates.idealyst.io/index/"]
-media-stream = { path = "../idealyst-native/crates/sdk/client/media-stream" }
-web-glue     = { path = "../idealyst-native/crates/runtime/web-glue" }
-runtime-tls  = { path = "../idealyst-native/crates/runtime/tls" }
+media-stream = { git = "https://github.com/IdealystIO/idealyst-native", rev = "26a4aff7434b1c6169bbad6131ba4bedeff7f8c2" }
+web-glue     = { git = "https://github.com/IdealystIO/idealyst-native", rev = "26a4aff7434b1c6169bbad6131ba4bedeff7f8c2" }
+runtime-tls  = { git = "https://github.com/IdealystIO/idealyst-native", rev = "26a4aff7434b1c6169bbad6131ba4bedeff7f8c2" }
