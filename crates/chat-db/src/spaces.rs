@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use chat_model::{Category, Channel, ChannelKind, Id, Invite, InvitePreview, Member, PermissionSet, Role, Space};
+use chat_model::{Category, Channel, ChannelKind, Id, Invite, InvitePreview, Member, Role, Space};
 use rand::Rng;
 use time::OffsetDateTime;
 
@@ -554,7 +554,7 @@ impl Db {
         .fetch_optional(&mut *tx)
         .await?;
         let space = space.ok_or(Error::NotFound)?;
-        let banned: i32 = sqlx::query_scalar(
+        let banned: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM space_bans WHERE space_id = $1 AND user_id = $2",
         )
             .bind(space)
