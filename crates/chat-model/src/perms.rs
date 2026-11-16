@@ -137,6 +137,22 @@ pub const ADMIN: u64 = Permission::IsAdmin.bit();
 /// The empty mask: what a channel asks of everyone in the space.
 pub const EVERYONE: u64 = 0;
 
+/// The default everyone baseline a new space seeds: see, post, own-message
+/// edits and deletes, react, attach, embed, and the self-service voice acts.
+/// It stops where the acts on other people and on the space begin.
+pub const DEFAULT_EVERYONE: u64 =
+    Permission::ViewChannel.bit()
+    | Permission::SendMessage.bit()
+    | Permission::EditOwnMessage.bit()
+    | Permission::DeleteOwnMessage.bit()
+    | Permission::AddReaction.bit()
+    | Permission::AttachFile.bit()
+    | Permission::EmbedLink.bit()
+    | Permission::VoiceConnect.bit()
+    | Permission::VoiceSpeak.bit()
+    | Permission::VoiceVideo.bit()
+    | Permission::VoiceShareScreen.bit();
+
 /// Expand a permission set: a set carrying the admin tag carries all.
 pub fn expand(permissions: u64) -> u64 {
     if permissions & ADMIN != 0 {
@@ -167,16 +183,16 @@ pub fn role_permissions(space: &Space, role: Id) -> u64 {
     space.roles.get(&role).map(|r| r.permissions).unwrap_or(0)
 }
 
-/// What `user` may do in `space`: the union of the permissions of the roles
-/// they hold. The owner holds everything whatever roles they carry, so no
-/// role can take their control away. `None` for someone who is not in the
-/// space.
+/// What `user` may do in `space`: the space's baseline, then the union of the
+/// permissions of the roles they hold. The owner holds everything whatever
+/// roles they carry, so no role can take their control away. `None` for
+/// someone who is not in the space.
 pub fn effective(space: &Space, user: Id) -> Option<u64> {
     let Some(member) = space.members.get(&user) else { return None };
     if user == space.owner {
         return Some(ALL);
     }
-    Some(member.roles.iter().fold(EVERYONE, |acc, role| union(acc, role_permissions(space, *role))))
+    Some(member.roles.iter().fold(space.everyone, |acc, role| union(acc, role_permissions(space, *role))))
 }
 
 /// Whether `user` may do `what` in `space`.
@@ -361,6 +377,7 @@ mod tests {
             name: "s".into(),
             icon: None,
             owner: id(1),
+            everyone: 0,
             members: members
                 .iter()
                 .map(|(u, _, rs)| (id(*u), Member { roles: rs.iter().map(|&n| id(n)).collect(), joined_at: 0 }))
@@ -442,6 +459,29 @@ mod tests {
         let c = channel(ChannelKind::Text, Permission::ViewChannel.bit(), Permission::SendMessage.bit());
         assert_eq!(channel_access(id(2), &c, Some(&s)), Access::ReadOnly);
         assert_eq!(channel_access(id(3), &c, Some(&s)), Access::Full);
+    }
+
+    #[test]
+    fn the_baseline_reaches_a_member_with_no_roles() {
+        let mut s = space(&[], &[(2, false, vec![])]);
+        s.everyone = DEFAULT_EVERYONE;
+        assert!(
+            has(effective(&s, id(2)).unwrap_or(EVERYONE), Permission::ViewChannel),
+            "the space's baseline holds for a member with no roles",
+        );
+        assert!(
+            !has(effective(&s, id(2)).unwrap_or(EVERYONE), Permission::ManageMembers),
+            "but the baseline stops where the acts on others begin",
+        );
+    }
+
+    #[test]
+    fn a_space_can_raise_its_baseline() {
+        let base = space(&[], &[(2, false, vec![])]);
+        let mut raised = space(&[], &[(2, false, vec![])]);
+        raised.everyone = DEFAULT_EVERYONE | Permission::ManageMembers.bit();
+        assert!(!has(effective(&base, id(2)).unwrap_or(EVERYONE), Permission::ManageMembers));
+        assert!(has(effective(&raised, id(2)).unwrap_or(EVERYONE), Permission::ManageMembers));
     }
 
     #[test]

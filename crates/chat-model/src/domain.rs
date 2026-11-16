@@ -123,6 +123,10 @@ pub struct Space {
     pub members: BTreeMap<Id, Member>,
     /// The space's roles by id; a member's `roles` point into this.
     pub roles: BTreeMap<Id, Role>,
+    /// The space's baseline: what every member holds whatever their roles say.
+    /// Seeded with [`DEFAULT_EVERYONE`] when the space is made, kept per space
+    /// so an owner can change it.
+    pub everyone: PermissionSet,
     pub categories: Vec<Category>,
     pub created_at: Millis,
 }

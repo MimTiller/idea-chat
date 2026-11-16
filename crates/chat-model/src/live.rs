@@ -643,6 +643,7 @@ mod tests {
             name: "Space".into(),
             icon: None,
             owner: id(1),
+            everyone: 0,
             members: members
                 .iter()
                 .map(|(u, rs)| (id(*u), Member { roles: rs.iter().map(|&n| id(n)).collect(), joined_at: 0 }))

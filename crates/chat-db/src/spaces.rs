@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use chat_model::{Category, Channel, ChannelKind, Id, Invite, InvitePreview, Member, Role, Space};
+use chat_model::{Category, Channel, ChannelKind, Id, Invite, InvitePreview, Member, PermissionSet, Role, Space};
 use rand::Rng;
 use time::OffsetDateTime;
 
@@ -32,6 +32,7 @@ struct SpaceRow {
     name: String,
     icon: Option<String>,
     owner_id: Id,
+    everyone: i64,
     created_at: OffsetDateTime,
 }
 
@@ -74,10 +75,11 @@ impl Db {
     pub async fn create_space(&self, new: &NewSpace) -> Result<(Space, Vec<Channel>)> {
         let mut tx = self.pool.begin().await?;
         let id = new_id();
-        sqlx::query("INSERT INTO spaces (id, name, owner_id) VALUES ($1, $2, $3)")
+        sqlx::query("INSERT INTO spaces (id, name, owner_id, everyone) VALUES ($1, $2, $3, $4)")
             .bind(id)
             .bind(&new.name)
             .bind(new.owner)
+            .bind(chat_model::perms::DEFAULT_EVERYONE as i64)
             .execute(&mut *tx)
             .await?;
         let position: i32 = sqlx::query_scalar("SELECT coalesce(max(position) + 1, 0) FROM space_members WHERE user_id = $1")
@@ -126,7 +128,7 @@ impl Db {
 
     /// A space, with its members and categories.
     pub async fn space(&self, id: Id) -> Result<Space> {
-        let row: SpaceRow = sqlx::query_as("SELECT id, name, icon, owner_id, created_at FROM spaces WHERE id = $1")
+        let row: SpaceRow = sqlx::query_as("SELECT id, name, icon, owner_id, everyone, created_at FROM spaces WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
@@ -151,6 +153,7 @@ impl Db {
             name: row.name,
             icon: row.icon,
             owner: row.owner_id,
+            everyone: row.everyone as u64,
             members: members
                 .into_iter()
                 .map(|(u, rs, at)| (u, Member { roles: rs, joined_at: millis(at) }))
