@@ -122,10 +122,10 @@ pub async fn send(
         people.iter().find(|u| u.handle.eq_ignore_ascii_case(h)).map(|u| u.id)
     });
     resolved.mentions.retain(|m| audience.contains(m));
-    // `@everyone` in a space is for its admins.
+    // `@everyone` needs the MentionEveryone permission.
     let everyone = resolved.everyone
         && match &space {
-            Some(s) => s.role_of(me).is_some_and(chat_model::perms::can_manage_space),
+            Some(s) => chat_model::perms::can(&s, me, chat_model::perms::Permission::MentionEveryone),
             None => true,
         };
     if let Some(r) = reply_to {
@@ -169,7 +169,7 @@ pub async fn edit(id: Id, body: String, user: Auth<Principal>) -> Answer<Message
     let a = app();
     let m = a.db.message(id).await.map_err(db)?;
     let (me, c, access, space) = open(&user.0, m.channel).await?;
-    if !chat_model::perms::can_edit_message(me, m.author) || !matches!(m.kind, MessageKind::Text) {
+    if !chat_model::perms::can_edit_message(space.as_ref(), me, m.author) || !matches!(m.kind, MessageKind::Text) {
         return Err(forbidden("You can only edit your own messages."));
     }
     if !access.can_post() {
@@ -199,12 +199,12 @@ pub async fn edit(id: Id, body: String, user: Auth<Principal>) -> Answer<Message
 pub async fn delete(id: Id, user: Auth<Principal>) -> Answer<()> {
     use chat_model::live::Event;
 
-    use crate::channels::body::{open, role_in};
+    use crate::channels::body::open;
     use crate::srv::{app, channel_topic, db, forbidden};
     let a = app();
     let m = a.db.message(id).await.map_err(db)?;
     let (me, c, _, space) = open(&user.0, m.channel).await?;
-    if !chat_model::perms::can_delete_message(me, m.author, role_in(&space, me)) {
+    if !chat_model::perms::can_delete_message(space.as_ref(), me, m.author) {
         return Err(forbidden("You can't delete that."));
     }
     let keys = a.db.delete_message(id).await.map_err(db)?;
@@ -281,7 +281,7 @@ pub async fn search(scope: Scope, query: String, user: Auth<Principal>) -> Answe
         Scope::Space { id } => {
             let account = me(&user.0).await?;
             let space = a.db.space(id).await.map_err(db)?;
-            if space.role_of(account.id()).is_none() {
+            if !space.members.contains_key(&account.id()) {
                 return Err(fail(ApiError::NotFound));
             }
             let all = a.db.space_channels(id).await.map_err(db)?;

@@ -2,7 +2,7 @@
 //! `CHAT_TEST_DATABASE_URL` (a server URL; each test makes its own database).
 
 use chat_db::{CodeCheck, CodePurpose, Db, InviteOutcome, NewAccount, NewMessage, NewSpace};
-use chat_model::{ChannelKind, Id, MessageKind, Presence, Relation, Role, Status};
+use chat_model::{ChannelKind, Id, MessageKind, Presence, Relation, Status};
 use sqlx::Connection;
 
 async fn db() -> Option<Db> {
@@ -107,7 +107,7 @@ async fn a_new_space_has_an_owner_and_starter_channels() {
     let Some(db) = db().await else { return };
     let ana = account(&db, "ana").await;
     let (space, channels) = db.create_space(&NewSpace { name: "Club".into(), owner: ana }).await.unwrap();
-    assert_eq!(space.role_of(ana), Some(Role::Owner));
+    assert_eq!(space.owner, ana);
     assert_eq!(space.categories.len(), 2);
     assert!(channels.iter().any(|c| c.kind == ChannelKind::Text && c.name == "general"));
     assert!(channels.iter().any(|c| c.kind == ChannelKind::Voice));
@@ -150,7 +150,7 @@ async fn the_owner_cannot_leave_but_can_transfer() {
     db.redeem_invite(&invite.code, bob).await.unwrap();
     assert!(db.remove_member(space.id, ana).await.is_err());
     db.transfer_space(space.id, ana, bob).await.unwrap();
-    assert_eq!(db.role(space.id, bob).await.unwrap(), Some(Role::Owner));
+    assert_eq!(db.role_ids(space.id, bob).await.unwrap(), Some(Vec::<Id>::new()));
     db.remove_member(space.id, ana).await.unwrap();
     assert_eq!(db.space(space.id).await.unwrap().owner, bob);
 }

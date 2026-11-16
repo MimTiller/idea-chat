@@ -43,7 +43,7 @@ pub use messages::{file_url, NewMessage, Posted, SearchHit, Upload};
 pub use people::RelationChange;
 pub use spaces::{InviteOutcome, NewSpace};
 
-use chat_model::{ChannelKind, Id, Millis, Presence, Relation, Role};
+use chat_model::{ChannelKind, Id, Millis, Presence, Relation};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use time::OffsetDateTime;
 
@@ -94,22 +94,6 @@ pub(crate) fn millis(t: OffsetDateTime) -> Millis {
 
 pub(crate) fn opt_millis(t: Option<OffsetDateTime>) -> Option<Millis> {
     t.map(millis)
-}
-
-pub(crate) fn role_text(r: Role) -> &'static str {
-    match r {
-        Role::Member => "member",
-        Role::Admin => "admin",
-        Role::Owner => "owner",
-    }
-}
-
-pub(crate) fn role_of(s: &str) -> Role {
-    match s {
-        "owner" => Role::Owner,
-        "admin" => Role::Admin,
-        _ => Role::Member,
-    }
 }
 
 pub(crate) fn kind_text(k: ChannelKind) -> &'static str {

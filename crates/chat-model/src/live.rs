@@ -76,6 +76,8 @@ pub enum Event {
     SpaceRemoved { space: Id },
     MemberJoined { space: Id, user: User, member: Member },
     MemberRoles { space: Id, user: Id, roles: Vec<Id> },
+    /// Ownership moved: the space now belongs to another member.
+    OwnerChanged { space: Id, owner: Id },
     /// The space's whole role set restated, so every connection can see the
     /// new names and permissions.
     RolesChanged { space: Id, roles: Vec<Role> },
@@ -213,6 +215,11 @@ impl State {
             Event::RolesChanged { space, roles } => {
                 if let Some(s) = self.spaces.get_mut(space) {
                     s.roles = roles.iter().map(|r| (r.id, r.clone())).collect();
+                }
+            }
+            Event::OwnerChanged { space, owner } => {
+                if let Some(s) = self.spaces.get_mut(space) {
+                    s.owner = *owner;
                 }
             }
             Event::MemberLeft { space, user } => {

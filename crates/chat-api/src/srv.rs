@@ -7,11 +7,11 @@
 //!
 //! Events are addressed to topics, and a live connection hears the topics
 //! its viewer may: their own (`u:<id>`), each conversation they are in
-//! (`c:<id>`), and in each space the tier of their role and every tier
-//! below it (`s:<id>:member`, `s:<id>:admin`, `s:<id>:owner`). A channel's
-//! events go to the tier of its view role, so a channel only admins can read
-//! is never described to a member — the fan-out, not the client, enforces
-//! it.
+//! (`c:<id>`), and each space they are a member of (`s:<id>`). A channel's
+//! events go to the space topic where the channel is open to everyone
+//! (its `view` mask is `0`), and to the channel's own topic (`c:<id>`)
+//! where it is gated, so only viewers whose permissions cover the mask
+//! subscribe to it — the fan-out, not the client, enforces reading.
 //!
 //! [`Bus::publish`] sends an envelope (topics + event) through the `pubsub`
 //! backend on one shared channel; every server instance subscribes once and
@@ -27,7 +27,8 @@ use std::time::Duration;
 
 use chat_db::{Account, Db};
 use chat_model::live::Event;
-use chat_model::{Channel, Id, Role};
+use chat_model::perms::{covers, effective};
+use chat_model::{Channel, Id};
 use futures_util::StreamExt;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -139,13 +140,15 @@ pub fn conversation_topic(channel: Id) -> String {
     format!("c:{channel}")
 }
 
-pub fn space_topic(space: Id, tier: Role) -> String {
-    format!("s:{space}:{}", tier.label().to_lowercase())
+pub fn space_topic(space: Id) -> String {
+    format!("s:{space}")
 }
 
-/// The tiers a role hears: its own and every one below it.
-pub fn tiers(role: Role) -> Vec<Role> {
-    [Role::Member, Role::Admin, Role::Owner].into_iter().filter(|r| *r <= role).collect()
+/// Whether a viewer hears a space channel's messages: ungated channels ride
+/// on the space topic; a channel with a `view` mask rides on its own topic,
+/// which only viewers covering the mask subscribe to.
+pub fn gated(channel: &Channel) -> bool {
+    channel.view != 0
 }
 
 /// Everything `viewer` hears, given their live state.
@@ -153,12 +156,17 @@ pub fn topics_for(state: &chat_model::live::State) -> Vec<String> {
     let Some(me) = state.me_id() else { return Vec::new() };
     let mut topics = vec![user_topic(me)];
     for space in state.spaces.values() {
-        if let Some(role) = space.role_of(me) {
-            topics.extend(tiers(role).into_iter().map(|t| space_topic(space.id, t)));
-        }
+        topics.push(space_topic(space.id));
     }
-    for c in state.channels.values().filter(|c| c.kind.is_private()) {
-        topics.push(conversation_topic(c.id));
+    for c in state.channels.values() {
+        if c.kind.is_private() {
+            topics.push(conversation_topic(c.id));
+            continue;
+        }
+        let Some(s) = c.space.and_then(|id| state.spaces.get(&id)) else { continue };
+        if gated(c) && covers(effective(s, me).unwrap_or(0), c.view) {
+            topics.push(conversation_topic(c.id));
+        }
     }
     topics
 }
@@ -169,8 +177,13 @@ pub async fn topics_of(user: Id) -> Vec<String> {
     let db = &app().db;
     let mut topics = vec![user_topic(user)];
     for space in db.spaces_of(user).await.unwrap_or_default() {
-        if let Ok(Some(role)) = db.role(space, user).await {
-            topics.extend(tiers(role).into_iter().map(|t| space_topic(space, t)));
+        topics.push(space_topic(space));
+        let Ok(s) = db.space(space).await else { continue };
+        let Some(held) = effective(&s, user) else { continue };
+        for c in db.space_channels(space).await.unwrap_or_default() {
+            if gated(&c) && covers(held, c.view) {
+                topics.push(conversation_topic(c.id));
+            }
         }
     }
     for c in db.conversations_of(user).await.unwrap_or_default() {
@@ -189,13 +202,14 @@ pub fn channel_topic_of(state: &chat_model::live::State, channel: Id) -> Option<
         Some(p) => state.channels.get(&p)?.view,
         None => c.view,
     };
-    Some(space_topic(c.space?, view))
+    Some(if view == 0 { space_topic(c.space?) } else { conversation_topic(c.id) })
 }
 
 /// The topic a channel's events go to. A thread is heard as its parent is.
 pub async fn channel_topic(channel: &Channel) -> Result<String, Failure> {
     Ok(match app().db.audience(channel).await.map_err(db)? {
-        chat_db::Audience::Space { space, view } => space_topic(space, view),
+        chat_db::Audience::Space { space, view } =>
+            if view == 0 { space_topic(space) } else { conversation_topic(channel.id) },
         chat_db::Audience::People(_) => conversation_topic(channel.id),
     })
 }
@@ -207,7 +221,7 @@ pub async fn seen_by(user: Id) -> Vec<String> {
     let db = &app().db;
     let mut topics = vec![user_topic(user)];
     for space in db.spaces_of(user).await.unwrap_or_default() {
-        topics.push(space_topic(space, Role::Member));
+        topics.push(space_topic(space));
     }
     for (other, relation) in db.relations_of(user).await.unwrap_or_default() {
         if relation != chat_model::Relation::Blocked {
@@ -545,9 +559,10 @@ mod tests {
     }
 
     #[test]
-    fn roles_hear_their_tier_and_below() {
-        assert_eq!(tiers(Role::Member), vec![Role::Member]);
-        assert_eq!(tiers(Role::Owner), vec![Role::Member, Role::Admin, Role::Owner]);
+    fn a_space_has_one_topic_and_a_gated_channel_its_own() {
+        let (a, b) = (Id::from_u128(1), Id::from_u128(2));
+        assert_ne!(space_topic(a), space_topic(b));
+        assert_ne!(space_topic(a), conversation_topic(b));
     }
 
     #[test]

@@ -43,11 +43,7 @@ use chat_model::Id;
 use serde::{Deserialize, Serialize};
 use server::ServerError;
 
-/// A space role, spelled so in server-function signatures: `#[server]` takes
-/// any parameter whose type is named `Role` to be server-kit's role
-/// extractor, so a wire argument of `chat_model::Role` must go by another
-/// name.
-pub type Rank = chat_model::Role;
+
 
 /// What a session stands for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

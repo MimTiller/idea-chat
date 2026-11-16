@@ -220,7 +220,19 @@ pub fn can_moderate(space: &Space, actor: Id, target: Id) -> bool {
 /// moderation act may touch: never the owner.
 pub fn can_grant(space: &Space, actor: Id, target: Id, to: Id) -> bool {
     can_moderate(space, actor, target)
-        && (actor == space.owner || covers(effective(space, actor).unwrap_or(0), role_permissions(space, to)))
+        && can(space, actor, Permission::ManageRoles)
+        && covers(effective(space, actor).unwrap_or(0), role_permissions(space, to))
+}
+
+/// Setting several roles at once: as [`can_grant`] for each role handed out,
+/// so a batch grant cannot smuggle in power the actor does not have.
+pub fn can_set_roles(space: &Space, actor: Id, target: Id, roles: &[Id]) -> bool {
+    roles.iter().all(|to| can_grant(space, actor, target, *to))
+}
+
+/// Whether `user` may manage a space's settings through an optional space.
+pub fn manages(space: &Option<Space>, user: Id) -> bool {
+    space.as_ref().is_some_and(|s| can(s, user, Permission::ManageSpaceSettings))
 }
 
 /// Whether `actor` may hand the space to `target`: the owner only, to a

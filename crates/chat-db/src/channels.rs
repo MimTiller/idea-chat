@@ -1,11 +1,11 @@
 //! Channels: a space's text and voice channels, threads, and direct and
 //! group conversations.
 
-use chat_model::{Channel, ChannelKind, Id, Role};
+use chat_model::{Channel, ChannelKind, Id};
 use sqlx::{Postgres, Transaction};
 use time::OffsetDateTime;
 
-use crate::{kind_of, kind_text, millis, new_id, role_of, role_text, Db, Error, Result};
+use crate::{kind_of, kind_text, millis, new_id, Db, Error, Result};
 
 /// The most people in a group conversation.
 pub const GROUP_MAX: usize = 10;
@@ -20,8 +20,8 @@ pub struct ChannelInit {
     pub category: Option<Id>,
     pub parent: Option<Id>,
     pub starter: Option<Id>,
-    pub view: Role,
-    pub post: Role,
+    pub view: u64,
+    pub post: u64,
     pub created_by: Id,
 }
 
@@ -36,8 +36,8 @@ pub(crate) struct ChannelRow {
     position: i32,
     parent_id: Option<Id>,
     starter_id: Option<Id>,
-    view_role: String,
-    post_role: String,
+    view_mask: i64,
+    post_mask: i64,
     archived: bool,
     last_message_id: Option<Id>,
     message_count: i32,
@@ -58,8 +58,8 @@ impl From<ChannelRow> for Channel {
             position: r.position,
             parent: r.parent_id,
             starter: r.starter_id,
-            view: role_of(&r.view_role),
-            post: role_of(&r.post_role),
+            view: r.view_mask as u64,
+            post: r.post_mask as u64,
             members: r.members,
             archived: r.archived,
             last_message: r.last_message_id,
@@ -73,7 +73,7 @@ impl From<ChannelRow> for Channel {
 /// A channel's columns, with its conversation members aggregated in (empty
 /// for space channels). `c` is the channel's alias.
 pub(crate) const CHANNEL_SELECT: &str = "SELECT c.id, c.kind, c.space_id, c.name, c.topic, c.category_id, c.position, \
-     c.parent_id, c.starter_id, c.view_role, c.post_role, c.archived, c.last_message_id, c.message_count, \
+     c.parent_id, c.starter_id, c.view_mask, c.post_mask, c.archived, c.last_message_id, c.message_count, \
      c.created_by, c.created_at, \
      coalesce((SELECT array_agg(m.user_id ORDER BY m.joined_at) FROM channel_members m WHERE m.channel_id = c.id), \
               '{}') AS members \
@@ -91,7 +91,7 @@ pub(crate) async fn insert_channel(tx: &mut Transaction<'_, Postgres>, init: &Ch
     .await?;
     sqlx::query(
         "INSERT INTO channels (id, kind, space_id, name, topic, category_id, position, parent_id, starter_id, \
-                               view_role, post_role, created_by) \
+                               view_mask, post_mask, created_by) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     )
     .bind(id)
@@ -103,8 +103,8 @@ pub(crate) async fn insert_channel(tx: &mut Transaction<'_, Postgres>, init: &Ch
     .bind(position)
     .bind(init.parent)
     .bind(init.starter)
-    .bind(role_text(init.view))
-    .bind(role_text(init.post))
+    .bind(init.view as i64)
+    .bind(init.post as i64)
     .bind(init.created_by)
     .execute(&mut **tx)
     .await?;
@@ -114,8 +114,8 @@ pub(crate) async fn insert_channel(tx: &mut Transaction<'_, Postgres>, init: &Ch
 /// Who a channel's events go to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Audience {
-    /// Members of the space at or above the role. For a thread, its parent's.
-    Space { space: Id, view: Role },
+    /// Members of the space who may see the channel's view mask. For a thread, its parent's.
+    Space { space: Id, view: u64 },
     /// The people in a conversation.
     People(Vec<Id>),
 }
@@ -176,18 +176,18 @@ impl Db {
         name: &str,
         topic: &str,
         category: Option<Id>,
-        view: Role,
-        post: Role,
+        view: u64,
+        post: u64,
     ) -> Result<Channel> {
         sqlx::query(
-            "UPDATE channels SET name = $2, topic = $3, category_id = $4, view_role = $5, post_role = $6 WHERE id = $1",
+            "UPDATE channels SET name = $2, topic = $3, category_id = $4, view_mask = $5, post_mask = $6 WHERE id = $1",
         )
         .bind(id)
         .bind(name)
         .bind(topic)
         .bind(category)
-        .bind(role_text(view))
-        .bind(role_text(post.max(view)))
+        .bind(view as i64)
+        .bind(post as i64)
         .execute(&self.pool)
         .await?;
         self.channel(id).await
@@ -294,8 +294,8 @@ impl Db {
                         category: None,
                         parent: None,
                         starter: None,
-                        view: Role::Member,
-                        post: Role::Member,
+                        view: 0,
+                        post: 0,
                         created_by: opener,
                     },
                 )
@@ -353,8 +353,8 @@ impl Db {
                 category: None,
                 parent: None,
                 starter: None,
-                view: Role::Member,
-                post: Role::Member,
+                view: 0,
+                post: 0,
                 created_by: owner,
             },
         )

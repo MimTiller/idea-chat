@@ -4,10 +4,10 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chat_model::timeline::Page;
-use chat_model::{Attachment, CallRecord, Id, Message, MessageKind, Reaction, ReplyTo, Role, ThreadLink};
+use chat_model::{Attachment, CallRecord, Id, Message, MessageKind, Reaction, ReplyTo, ThreadLink};
 use time::OffsetDateTime;
 
-use crate::{millis, new_id, opt_millis, role_text, Db, Error, Result};
+use crate::{millis, new_id, opt_millis, Db, Error, Result};
 
 /// What posting needs, already validated and with mentions resolved.
 #[derive(Debug, Clone)]
@@ -260,21 +260,21 @@ impl Db {
                 .await?
         } else if new.everyone {
             // Everyone who can see it: a thread is seen as its parent is.
-            let view: String = sqlx::query_scalar("SELECT view_role FROM channels WHERE id = $1")
+            let view: i64 = sqlx::query_scalar("SELECT view_mask FROM channels WHERE id = $1")
                 .bind(parent.unwrap_or(new.channel))
                 .fetch_one(&mut *tx)
                 .await?;
-            let ranks = match view.as_str() {
-                "owner" => vec!["owner"],
-                "admin" => vec!["admin", "owner"],
-                _ => vec!["member", "admin", "owner"],
-            };
+            // Members who can see an @everyone: the owner whatever their roles,
+            // or anyone holding a role whose permissions cover the channel's view mask.
             sqlx::query_scalar(
-                "SELECT user_id FROM space_members WHERE space_id = $1 AND user_id <> $2 AND role = ANY($3)",
+                "SELECT user_id FROM space_members WHERE space_id = $1 AND user_id <> $2 AND \
+                 (user_id = (SELECT owner_id FROM spaces WHERE id = $1) \
+                  OR EXISTS ((SELECT role_id FROM space_roles AS sr WHERE sr.space_id = $1 AND sr.role_id = ANY(role_ids) \
+                   AND sr.permissions & $3 = $3)))",
             )
             .bind(space)
             .bind(new.author)
-            .bind(&ranks)
+            .bind(view)
             .fetch_all(&mut *tx)
             .await?
         } else {
@@ -570,16 +570,17 @@ impl Db {
             .collect())
     }
 
-    /// Ids of members of `space` at or above `role`.
-    pub async fn members_at_least(&self, space: Id, role: Role) -> Result<Vec<Id>> {
-        let ranks: Vec<&str> = [Role::Member, Role::Admin, Role::Owner]
-            .into_iter()
-            .filter(|r| *r >= role)
-            .map(role_text)
-            .collect();
-        Ok(sqlx::query_scalar("SELECT user_id FROM space_members WHERE space_id = $1 AND role = ANY($2)")
+    /// Ids of members of `space` whose effective permissions cover `mask`
+    /// (the owner always does).
+    pub async fn members_covering(&self, space: Id, mask: u64) -> Result<Vec<Id>> {
+        Ok(sqlx::query_scalar(
+            "SELECT user_id FROM space_members WHERE space_id = $1 AND \
+             (user_id = (SELECT owner_id FROM spaces WHERE id = $1) \
+              OR EXISTS ((SELECT role_id FROM space_roles AS sr WHERE sr.space_id = $1 AND sr.role_id = ANY(role_ids) \
+              AND sr.permissions & $2 = $2)))",
+        )
             .bind(space)
-            .bind(&ranks)
+            .bind(mask as i64)
             .fetch_all(&self.pool)
             .await?)
     }

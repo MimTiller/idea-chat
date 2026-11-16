@@ -124,13 +124,12 @@ pub async fn set_avatar(upload: Option<Id>, user: Auth<Principal>) -> Answer<Use
 #[server]
 pub async fn set_space_icon(space: Id, upload: Option<Id>, user: Auth<Principal>) -> Answer<()> {
     use chat_model::live::Event;
-    use chat_model::Role;
 
     use crate::srv::{app, db, forbidden, invalid, me, space_topic};
     let account = me(&user.0).await?;
     let a = app();
     let s = a.db.space(space).await.map_err(db)?;
-    if !s.role_of(account.id()).is_some_and(chat_model::perms::can_manage_space) {
+    if !chat_model::perms::can(&s, account.id(), chat_model::perms::Permission::ManageSpaceSettings) {
         return Err(forbidden("Only admins can change the icon."));
     }
     let icon = match upload {
@@ -144,6 +143,6 @@ pub async fn set_space_icon(space: Id, upload: Option<Id>, user: Auth<Principal>
         None => None,
     };
     a.db.rename_space(space, &s.name, icon.as_deref()).await.map_err(db)?;
-    a.bus.publish(vec![space_topic(space, Role::Member)], Event::SpaceRenamed { space, name: s.name, icon }).await;
+    a.bus.publish(vec![space_topic(space)], Event::SpaceRenamed { space, name: s.name, icon }).await;
     Ok(())
 }
