@@ -183,6 +183,11 @@ pub async fn update_role(space: Id, role: Id, name: String, permissions: Permiss
     if !s.roles.contains_key(&role) {
         return Err(forbidden("That role doesn't exist."));
     }
+    // Hierarchy: a member may rewrite only roles at or below their own top
+    // role; the owner is exempt.
+    if !perms::can_edit_role(&s, me, role) {
+        return Err(forbidden("You can't edit a role above your own."));
+    }
     if !perms::can_author_role(&s, me, permissions) {
         return Err(forbidden("You can't grant powers you do not have."));
     }
@@ -199,8 +204,10 @@ pub async fn delete_role(space: Id, role: Id, user: Auth<Principal>) -> Answer<(
 
     use crate::srv::{app, db, forbidden};
     let (me, s) = body::member(&user.0, space).await?;
-    if !perms::can(&s, me, Permission::ManageRoles) {
-        return Err(forbidden("Only those who manage roles can delete roles."));
+    // Hierarchy: a member may delete only roles at or below their own top
+    // role; the owner is exempt.
+    if !perms::can_edit_role(&s, me, role) {
+        return Err(forbidden("You can't delete a role above your own."));
     }
     app().db.delete_role(space, role).await.map_err(db)?;
     body::publish_roles(space).await;

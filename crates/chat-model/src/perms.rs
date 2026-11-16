@@ -220,14 +220,40 @@ pub fn channel_access(user: Id, channel: &Channel, space: Option<&Space>) -> Acc
     }
 }
 
+/// The rank a member acts at: the position of their most senior role — a
+/// lower `position` is more senior — or `None` for a member holding no roles,
+/// who sits at the bottom of the ladder.
+pub fn top_position(space: &Space, user: Id) -> Option<i32> {
+    space.members.get(&user).and_then(|m|
+        m.roles
+            .iter()
+            .filter_map(|r| space.roles.get(r).map(|role| role.position))
+            .min())
+}
+
 /// Removing someone from a space: the [`Permission::ManageMembers`] bit buys
-/// it (the owner always may). The target must be in the space, and the owner
-/// is never a target — ownership is transferred, not revoked, so no role can
-/// demote them.
+/// it (the owner always may), and only at their own rank or below: a member
+/// can only reach those under their top role. The target must be in the space,
+/// and the owner is never a target — ownership is transferred, not revoked, so
+/// no role can demote them.
 pub fn can_moderate(space: &Space, actor: Id, target: Id) -> bool {
     space.members.contains_key(&target)
         && target != space.owner
-        && (actor == space.owner || can(space, actor, Permission::ManageMembers))
+        && (actor == space.owner
+            || can(space, actor, Permission::ManageMembers) && reaches(space, actor, target))
+}
+
+/// Whether `actor` sits at or above `target`'s rank, so they may touch their
+/// subordinate: the owner reaches everyone, and a member with no roles sits
+/// below every role, reaching only members with no roles.
+pub fn reaches(space: &Space, actor: Id, target: Id) -> bool {
+    actor == space.owner
+        || match (top_position(space, actor), top_position(space, target)) {
+            (Some(a), Some(t)) => t >= a,
+            (Some(_), None) => true,
+            (None, None) => true,
+            (None, Some(_)) => false,
+        }
 }
 
 /// Giving someone a role: [`Permission::ManageRoles`] buys it (the owner
@@ -246,16 +272,29 @@ pub fn can_grant(space: &Space, actor: Id, target: Id, to: Id) -> bool {
 /// actor does not have.
 pub fn can_set_roles(space: &Space, actor: Id, target: Id, roles: &[Id]) -> bool {
     can_moderate(space, actor, target)
-        && can(space, actor, Permission::ManageRoles)
-        && roles.iter().all(|to| covers(effective(space, actor).unwrap_or(0), role_permissions(space, *to)))
+        && roles.iter().all(|to| can_grant(space, actor, target, *to))
 }
 
-/// Creating or rewriting a role: [`Permission::ManageRoles`] buys it (the
-/// owner always may), and the role cannot carry power the actor does not
-/// hold — an admin tag in the set buys it only for an admin.
+/// Creating a role: [`Permission::ManageRoles`] buys it (the owner always
+/// may), and the role cannot carry power the actor does not hold. A new role
+/// sits at the bottom of the ladder, so hierarchy never blocks creating one.
 pub fn can_author_role(space: &Space, actor: Id, permissions: PermissionSet) -> bool {
     can(space, actor, Permission::ManageRoles)
         && covers(effective(space, actor).unwrap_or(0), expand(permissions))
+}
+
+/// Whether `actor` may touch a role at `position`: the owner is exempt, and a
+/// member reaches only roles at or below the rank of their top role.
+pub fn reaches_role(space: &Space, actor: Id, position: i32) -> bool {
+    actor == space.owner
+        || top_position(space, actor).is_some_and(|top| position >= top)
+}
+
+/// Editing or deleting the role `role`: [`Permission::ManageRoles`] buys it
+/// (the owner always may), and the role sits at or below the actor's own rank.
+pub fn can_edit_role(space: &Space, actor: Id, role: Id) -> bool {
+    can(space, actor, Permission::ManageRoles)
+        && reaches_role(space, actor, space.roles.get(&role).map(|r| r.position).unwrap_or(0))
 }
 
 /// Whether `user` may manage a space's settings through an optional space.
