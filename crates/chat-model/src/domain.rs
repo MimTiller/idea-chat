@@ -13,6 +13,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Id, Millis};
 
+/// The permission bitset [`crate::perms`] decides against: `Role`'s `permissions`
+/// field and `Channel`'s `view` and `post` masks are all of these.
+pub type PermissionSet = u64;
+
 /// Someone with an account, as anyone who can see them sees them. Email and
 /// everything else private lives on [`Me`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,31 +76,29 @@ pub struct Status {
     pub text: Option<String>,
 }
 
-/// Where someone stands in a space. Ordered: a channel open to `Member` is
-/// open to everyone in the space, one open to `Admin` to admins and the owner.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Role {
-    #[default]
-    Member,
-    Admin,
-    Owner,
+/// One named bundle of what people may do in a space. `permissions` is a bitset
+/// over [`crate::perms::Permission`]; `position` orders the role list. The
+/// owner is not a role: ownership is its own fact on the space and carries
+/// every permission whatever roles the owner also holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Role {
+    pub id: Id,
+    pub name: String,
+    pub permissions: u64,
+    pub position: i32,
 }
 
 impl Role {
-    pub fn label(self) -> &'static str {
-        match self {
-            Role::Member => "Member",
-            Role::Admin => "Admin",
-            Role::Owner => "Owner",
-        }
+    pub fn label(self) -> String {
+        self.name.clone()
     }
 }
 
-/// A person's membership in a space.
+/// A person's membership in a space: the roles they hold. Their permission set
+/// is the union of the roles' sets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Member {
-    pub role: Role,
+    pub roles: Vec<Id>,
     pub joined_at: Millis,
 }
 
@@ -108,9 +110,10 @@ pub struct Category {
     pub position: i32,
 }
 
-/// A community: its people and how its channels are grouped. The channels
-/// themselves are kept beside spaces in [`crate::live::State::channels`], so
-/// a direct conversation and a space channel are looked up the same way.
+/// A community: its people, the roles it hands out, and how its channels are
+/// grouped. The channels themselves are kept beside spaces in
+/// [`crate::live::State::channels`], so a direct conversation and a space
+/// channel are looked up the same way.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Space {
     pub id: Id,
@@ -118,14 +121,16 @@ pub struct Space {
     pub icon: Option<String>,
     pub owner: Id,
     pub members: BTreeMap<Id, Member>,
+    /// The space's roles by id; a member's `roles` point into this.
+    pub roles: BTreeMap<Id, Role>,
     pub categories: Vec<Category>,
     pub created_at: Millis,
 }
 
 impl Space {
-    /// The role `user` holds here, if they are a member at all.
-    pub fn role_of(&self, user: Id) -> Option<Role> {
-        self.members.get(&user).map(|m| m.role)
+    /// The ids of the roles `user` holds here, if they are a member at all.
+    pub fn role_ids(&self, user: Id) -> Option<Vec<Id>> {
+        self.members.get(&user).map(|m| m.roles.clone())
     }
 }
 
@@ -181,11 +186,12 @@ pub struct Channel {
     pub parent: Option<Id>,
     /// The message a thread grew from, shown at its top.
     pub starter: Option<Id>,
-    /// The least role that may see it. Below it, the channel shows locked.
-    pub view: Role,
-    /// The least role that may post. Below it (but at or above `view`), the
-    /// channel is read-only.
-    pub post: Role,
+    /// The permission mask a member's set must cover to see it. `0` asks
+    /// everyone in the space; [`crate::perms::ADMIN`] asks an admin.
+    pub view: u64,
+    /// The extra permission mask a set must cover to post. A thread ignores
+    /// these; its parent's apply.
+    pub post: u64,
     /// Who is in a direct or group conversation. Empty for space channels,
     /// whose audience is the space.
     pub members: Vec<Id>,

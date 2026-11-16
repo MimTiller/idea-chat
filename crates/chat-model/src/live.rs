@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::perms::{self, Access};
+use crate::perms::{self, Access, Permission};
 use crate::{
     Category, Channel, ChannelKind, Device, Id, KeyRequest, Me, Member, Message, Millis, Presence, ReadState,
     Relation, Ring, Role, SealedKey, Space, Status, User, VoiceState,
@@ -75,7 +75,10 @@ pub enum Event {
     /// The viewer is no longer in a space: left, removed, or it was deleted.
     SpaceRemoved { space: Id },
     MemberJoined { space: Id, user: User, member: Member },
-    MemberRole { space: Id, user: Id, role: Role },
+    MemberRoles { space: Id, user: Id, roles: Vec<Id> },
+    /// The space's whole role set restated, so every connection can see the
+    /// new names and permissions.
+    RolesChanged { space: Id, roles: Vec<Role> },
     MemberLeft { space: Id, user: Id },
     CategoriesChanged { space: Id, categories: Vec<Category> },
     SpaceOrder { spaces: Vec<Id> },
@@ -202,12 +205,14 @@ impl State {
                     s.members.insert(user.id, member.clone());
                 }
             }
-            Event::MemberRole { space, user, role } => {
+            Event::MemberRoles { space, user, roles } => {
                 if let Some(m) = self.spaces.get_mut(space).and_then(|s| s.members.get_mut(user)) {
-                    m.role = *role;
+                    m.roles = roles.clone();
                 }
-                if let Some(s) = self.spaces.get_mut(space).filter(|_| *role == Role::Owner) {
-                    s.owner = *user;
+            }
+            Event::RolesChanged { space, roles } => {
+                if let Some(s) = self.spaces.get_mut(space) {
+                    s.roles = roles.iter().map(|r| (r.id, r.clone())).collect();
                 }
             }
             Event::MemberLeft { space, user } => {
@@ -367,9 +372,10 @@ impl State {
         perms::channel_access(me, &rules, self.space_of(c))
     }
 
-    /// The viewer's role in a space.
-    pub fn my_role(&self, space: Id) -> Option<Role> {
-        self.spaces.get(&space).and_then(|s| s.role_of(self.me_id()?))
+    /// The viewer's permission set in a space — what they may do there.
+    pub fn my_permissions(&self, space: Id) -> Option<u64> {
+        let Some(me) = self.me_id() else { return None };
+        self.spaces.get(&space).and_then(|s| perms::effective(s, me))
     }
 
     /// Whether a channel has messages the viewer has not read.
@@ -539,17 +545,18 @@ impl State {
         self.rings.values().find(|r| r.started_by != me && r.ringing.contains(&me))
     }
 
-    /// The people in a space, grouped for its member list: online first by
-    /// role, then offline, each by name.
+    /// The people in a space, grouped for its member list: admins (anyone
+    /// whose permission set covers the admin tag) online first, then others
+    /// online, then offline, each by name.
     pub fn roster(&self, space: Id) -> Roster {
         let mut roster = Roster::default();
         let Some(s) = self.spaces.get(&space) else { return roster };
-        let mut members: Vec<(Id, Role)> = s.members.iter().map(|(u, m)| (*u, m.role)).collect();
-        members.sort_by_cached_key(|(u, r)| (std::cmp::Reverse(*r), self.display_name(*u).to_lowercase()));
-        for (user, role) in members {
+        let mut members: Vec<(Id, bool)> = s.members.keys().map(|u| (*u, perms::can(s, *u, Permission::IsAdmin))).collect();
+        members.sort_by_key(|(u, admin)| (std::cmp::Reverse(*admin), self.display_name(*u).to_lowercase()));
+        for (user, _) in members {
             if self.presence_of(user) == Presence::Offline {
                 roster.offline.push(user);
-            } else if role >= Role::Admin {
+            } else if perms::can(s, user, Permission::IsAdmin) {
                 roster.admins.push(user);
             } else {
                 roster.online.push(user);
@@ -623,13 +630,17 @@ mod tests {
         Me { user: user(n, "Me"), email: "me@example.com".into(), status: Status { presence: Presence::Online, text: None } }
     }
 
-    fn space(n: u128, members: &[(u128, Role)]) -> Space {
+    fn space(n: u128, members: &[(u128, Vec<u128>)]) -> Space {
         Space {
             id: id(n),
             name: "Space".into(),
             icon: None,
             owner: id(1),
-            members: members.iter().map(|&(u, r)| (id(u), Member { role: r, joined_at: 0 })).collect(),
+            members: members
+                .iter()
+                .map(|(u, rs)| (id(*u), Member { roles: rs.iter().map(|&n| id(n)).collect(), joined_at: 0 }))
+                .collect(),
+            roles: BTreeMap::new(),
             categories: vec![],
             created_at: 0,
         }
@@ -646,8 +657,8 @@ mod tests {
             position: 0,
             parent: None,
             starter: None,
-            view: Role::Member,
-            post: Role::Member,
+            view: 0,
+            post: 0,
             members: vec![],
             archived: false,
             last_message: None,
@@ -680,7 +691,7 @@ mod tests {
     fn world() -> State {
         let mut s = State { me: Some(me(1)), ..Default::default() };
         s.apply(&Event::SpaceUpserted {
-            space: space(100, &[(1, Role::Owner), (2, Role::Member)]),
+            space: space(100, &[(1, vec![]), (2, vec![])]),
             channels: vec![channel(200, Some(100), ChannelKind::Text)],
             users: vec![user(1, "Me"), user(2, "Ana")],
         });
@@ -771,9 +782,9 @@ mod tests {
     fn a_locked_channel_is_never_unread() {
         let mut s = State { me: Some(me(2)), ..Default::default() };
         let mut locked = channel(200, Some(100), ChannelKind::Text);
-        locked.view = Role::Admin;
+        locked.view = perms::ADMIN;
         s.apply(&Event::SpaceUpserted {
-            space: space(100, &[(1, Role::Owner), (2, Role::Member)]),
+            space: space(100, &[(1, vec![]), (2, vec![])]),
             channels: vec![locked],
             users: vec![],
         });
@@ -796,7 +807,7 @@ mod tests {
     fn restating_a_space_drops_channels_deleted_meanwhile() {
         let mut s = world();
         s.apply(&Event::SpaceUpserted {
-            space: space(100, &[(1, Role::Owner)]),
+            space: space(100, &[(1, vec![])]),
             channels: vec![channel(201, Some(100), ChannelKind::Text)],
             users: vec![],
         });
@@ -894,7 +905,7 @@ mod tests {
     #[test]
     fn the_space_order_never_loses_a_space() {
         let mut s = world();
-        s.apply(&Event::SpaceUpserted { space: space(101, &[(1, Role::Member)]), channels: vec![], users: vec![] });
+        s.apply(&Event::SpaceUpserted { space: space(101, &[(1, vec![])]), channels: vec![], users: vec![] });
         s.apply(&Event::SpaceOrder { spaces: vec![id(101), id(999)] });
         assert_eq!(s.space_order, vec![id(101), id(100)]);
     }
