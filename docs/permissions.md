@@ -29,8 +29,10 @@ same file and `crates/chat/src/nav.rs` (`SpaceNav`, ~line 570),
 `crates/chat/src/settings.rs` (~line 152) call
 `chat_model::perms::can_manage_space` and a store method `my_role`, and
 `settings.rs` constructs `Role::Owner`/`Role::Admin`/`Role::Member` — none of
-which exist in this snapshot (`chat-model/src/domain.rs::Role` is a struct,
-and `chat-model/src/store.rs` is `Store` with no `my_role`). `chat/src` is a
+which exist in this snapshot (`chat-model/src/domain.rs::Role` is a struct, not
+an enum, and `chat/src/store.rs::Store` — the `chat` crate's own state type —
+has no `my_role`; the only `my_role` anywhere in the repo is
+`crates/hearth/src/model.rs`). `chat/src` is a
 sibling crate to `chat-model`, so those references do not resolve; the client
 is unfinished at this snapshot and the work to port it is listed as planned.
 
@@ -75,7 +77,7 @@ own definitions and tests asks the bit.
 | Permission | Bit | Group | What it allows | Checked where |
 | --- | --- | --- | --- | --- |
 | ViewChannel | 0 | messages | Read a space channel at all. | Not checked on its own. It is the required bit of a channel's `view` mask, enforced through `perms::channel_access`: `chat-api/src/channels.rs::body::open` (every channel-bearing verb reads the resulting `Access`), `chat-api/src/srv.rs::topics_for` / `topics_of` (subscribe to a gated channel's topic only when the effective set covers `view`), `chat-api/src/messages.rs::search` (`Scope::Space` filters channels by `channel_access >= ReadOnly`). |
-| SendMessage | 1 | messages | Post in a channel. | Same route as ViewChannel: `view | post` masks in `channel_access`, then `Access.can_post()` at `chat-api/src/channels.rs` (`create_thread` ~line 140), `chat-api/src/messages.rs` (`send` ~line 98, `edit` ~line 180), `chat-api/src/channels.rs::rename_channel` (~line 239). A channel whose `post` mask is 0 asks nothing of ordinary members. |
+| SendMessage | 1 | messages | Post in a channel. | Same route as ViewChannel: `view | post` masks in `channel_access`, then `Access.can_post()` at `chat-api/src/channels.rs` (`create_thread` guard ~line 165), `chat-api/src/messages.rs` (`send` ~line 98, `edit` ~line 180), `chat-api/src/channels.rs::rename_channel` (~line 239). A channel whose `post` mask is 0 asks nothing of ordinary members. |
 | EditOwnMessage | 2 | messages | Change one of their own messages. | `perms.rs::can_edit_message` → `chat-api/src/messages.rs::edit` (~line 172). |
 | DeleteOwnMessage | 3 | messages | Delete one of their own messages. | **not enforced yet.** Nothing checks the bit; `perms.rs::can_delete_message` lets the author delete their own message regardless of it, while its own doc comment says the bit "governs whether they may". The code and the comment disagree; nothing at this snapshot enforces it. |
 | DeleteOthersMessage | 4 | messages | Delete someone else's message. | `perms.rs::can_delete_message` → `chat-api/src/messages.rs::delete` (~line 207). |
