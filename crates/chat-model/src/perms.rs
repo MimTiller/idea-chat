@@ -11,7 +11,7 @@
 //! The masks spell themselves with [`Permission::bit`], so a channel open to
 //! everyone carries `0` and one open to admins carries [`ADMIN`].
 
-use crate::{Channel, Id, Space};
+use crate::{Channel, Id, PermissionSet, Space};
 
 /// What someone may do in a channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -224,10 +224,22 @@ pub fn can_grant(space: &Space, actor: Id, target: Id, to: Id) -> bool {
         && covers(effective(space, actor).unwrap_or(0), role_permissions(space, to))
 }
 
-/// Setting several roles at once: as [`can_grant`] for each role handed out,
-/// so a batch grant cannot smuggle in power the actor does not have.
+/// Setting several roles at once: the actor may moderate the target and
+/// manage roles — clearing a member's roles is an act too — and every role
+/// handed out passes [`can_grant`], so a batch cannot smuggle in power the
+/// actor does not have.
 pub fn can_set_roles(space: &Space, actor: Id, target: Id, roles: &[Id]) -> bool {
-    roles.iter().all(|to| can_grant(space, actor, target, *to))
+    can_moderate(space, actor, target)
+        && can(space, actor, Permission::ManageRoles)
+        && roles.iter().all(|to| covers(effective(space, actor).unwrap_or(0), role_permissions(space, *to)))
+}
+
+/// Creating or rewriting a role: [`Permission::ManageRoles`] buys it (the
+/// owner always may), and the role cannot carry power the actor does not
+/// hold — an admin tag in the set buys it only for an admin.
+pub fn can_author_role(space: &Space, actor: Id, permissions: PermissionSet) -> bool {
+    can(space, actor, Permission::ManageRoles)
+        && covers(effective(space, actor).unwrap_or(0), expand(permissions))
 }
 
 /// Whether `user` may manage a space's settings through an optional space.
@@ -418,5 +430,25 @@ mod tests {
         assert!(can_delete_message(Some(&s), id(1), id(2)), "the admin bit buys delete-others");
         assert!(!can_delete_message(Some(&s), id(9), id(2)), "a stranger deletes nothing");
         assert!(can_delete_message(None, id(2), id(2)), "an author deletes their own even with no space");
+    }
+
+    #[test]
+    fn clearing_a_member_s_roles_is_an_act_the_role_manager_makes() {
+        let s = space(&[(7, ADMIN), (8, POSTING)], &[(1, true, vec![]), (2, false, vec![7]), (3, false, vec![8])]);
+        assert!(can_set_roles(&s, id(1), id(2), &vec![]), "the owner strips roles as well as hands them out");
+        assert!(can_set_roles(&s, id(2), id(3), &vec![id(7)]), "an admin strips and hands out");
+        assert!(!can_set_roles(&s, id(3), id(2), &vec![]), "a poster strips nothing");
+        assert!(!can_set_roles(&s, id(1), id(1), &vec![id(7)]), "not even the owner strips their own");
+    }
+
+    #[test]
+    fn a_role_manager_cannot_author_a_role_beyond_their_powers() {
+        let s = space(&[(7, Permission::ManageRoles.bit() | Permission::SendMessage.bit()), (8, ADMIN)],
+                      &[(1, true, vec![]), (2, false, vec![7])]);
+        assert!(can_author_role(&s, id(1), ADMIN), "the owner authors anything");
+        assert!(can_author_role(&s, id(2), Permission::ManageRoles.bit()), "a role manager authors their own bit");
+        assert!(!can_author_role(&s, id(2), Permission::ManageRoles.bit() | Permission::DeleteOthersMessage.bit()),
+                "but not a power they do not hold");
+        assert!(!can_author_role(&s, id(2), ADMIN), "and not the admin tag");
     }
 }

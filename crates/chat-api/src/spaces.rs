@@ -128,9 +128,9 @@ pub async fn remove_member(space: Id, member: Id, user: Auth<Principal>) -> Answ
     Ok(())
 }
 
-/// Set the roles someone holds. Every role handed out must be one the caller
-/// may grant: their own permissions cover it, so no role buys power a grant
-/// does not already come with.
+/// Set the roles someone holds. The caller moderates the target and manages
+/// roles — clearing a member's roles is an act too — and no role handed out
+/// carries power the caller does not hold.
 #[server]
 pub async fn set_roles(space: Id, member: Id, roles: Vec<Id>, user: Auth<Principal>) -> Answer<()> {
     use chat_model::live::Event;
@@ -164,10 +164,7 @@ pub async fn create_role(space: Id, name: String, permissions: PermissionSet, us
 
     use crate::srv::{app, db, forbidden, invalid};
     let (me, s) = body::member(&user.0, space).await?;
-    if !perms::can(&s, me, Permission::ManageRoles) {
-        return Err(forbidden("Only those who manage roles can make roles."));
-    }
-    if !perms::covers(perms::effective(&s, me).unwrap_or(0), permissions) {
+    if !perms::can_author_role(&s, me, permissions) {
         return Err(forbidden("You can't create a role with powers you do not have."));
     }
     let name = chat_model::text::name(&name).map_err(invalid("name"))?;
@@ -186,10 +183,7 @@ pub async fn update_role(space: Id, role: Id, name: String, permissions: Permiss
     if !s.roles.contains_key(&role) {
         return Err(forbidden("That role doesn't exist."));
     }
-    if !perms::can(&s, me, Permission::ManageRoles) {
-        return Err(forbidden("Only those who manage roles can change roles."));
-    }
-    if !perms::covers(perms::effective(&s, me).unwrap_or(0), permissions) {
+    if !perms::can_author_role(&s, me, permissions) {
         return Err(forbidden("You can't grant powers you do not have."));
     }
     let name = chat_model::text::name(&name).map_err(invalid("name"))?;
