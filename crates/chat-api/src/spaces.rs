@@ -285,7 +285,7 @@ pub async fn transfer_space(space: Id, to: Id, user: Auth<Principal>) -> Answer<
 pub async fn create_invite(space: Id, max_uses: Option<u32>, hours: Option<u32>, user: Auth<Principal>) -> Answer<Invite> {
     use crate::srv::{app, db, forbidden};
     let (me, s) = body::member(&user.0, space).await?;
-    if !chat_model::perms::can_invite(&s, me) {
+    if !chat_model::perms::can(&s, me, chat_model::perms::Permission::ManageInvites) {
         return Err(forbidden("Only those who manage invites can make one."));
     }
     let expires = hours.map(|h| time::OffsetDateTime::now_utc() + time::Duration::hours(h.clamp(1, 24 * 30) as i64));
@@ -298,7 +298,7 @@ pub async fn invites(space: Id, user: Auth<Principal>) -> Answer<Vec<Invite>> {
     use chat_model::perms;
     use crate::srv::{app, db, forbidden};
     let (me, s) = body::member(&user.0, space).await?;
-    if !perms::can_invite(&s, me) {
+    if !perms::can(&s, me, Permission::ManageInvites) {
         return Err(forbidden("Only those who manage invites can see them."));
     }
     app().db.invites(space).await.map_err(db)
@@ -309,7 +309,7 @@ pub async fn revoke_invite(space: Id, code: String, user: Auth<Principal>) -> An
     use chat_model::perms;
     use crate::srv::{app, db, forbidden};
     let (me, s) = body::member(&user.0, space).await?;
-    if !perms::can_invite(&s, me) {
+    if !perms::can(&s, me, Permission::ManageInvites) {
         return Err(forbidden("Only those who manage invites can revoke one."));
     }
     app().db.revoke_invite(space, &code).await.map_err(db)

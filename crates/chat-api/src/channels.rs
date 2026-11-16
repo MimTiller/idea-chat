@@ -108,7 +108,11 @@ pub async fn update_channel(
     // buys: only when the masks actually move, a name or topic change does
     // not need it.
     if (view, post) != (c.view, c.post)
-        && !chat_model::perms::manages_channel(&space, me)
+        && !chat_model::perms::can_act(
+            space.as_ref(),
+            me,
+            chat_model::perms::Permission::ManageChannelRoles,
+        )
     {
         return Err(forbidden("Only those who manage channel roles can change that."));
     }

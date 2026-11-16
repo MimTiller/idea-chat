@@ -113,7 +113,7 @@ pub async fn join_call(channel: Id, device: Id, user: Auth<Principal>) -> Answer
     if !access.can_post() {
         return Err(forbidden("You can't join this call."));
     }
-    if !chat_model::perms::can_connect(&c, space.as_ref(), me) {
+    if !chat_model::perms::can_at(&c, space.as_ref(), me, chat_model::perms::Permission::VoiceConnect) {
         return Err(forbidden("You can't join this call."));
     }
     let a = app();
@@ -188,6 +188,15 @@ pub async fn leave_call(user: Auth<Principal>) -> Answer<()> {
     Ok(())
 }
 
+/// VoiceForceMute and VoiceMoveMember gate acting on someone else's call —
+/// forcing a mute, moving a member between calls. This stack has no verb
+/// that does either: `update_call` only carries the caller's own mute/deafen
+/// self-service, and `leave_call` only takes the caller out when their own
+/// connection drops. There is no server site that sees such an act, so there
+/// is nothing to check these against; Permission::VoiceForceMute and
+/// Permission::VoiceMoveMember are enforced the day such controls arrive,
+/// gating through `can_at` like the rest. This comment names them so the
+/// audit does not read the absence as a missing check.
 /// What the caller is sending in their call.
 #[server(tags(limit = "120/min"))]
 pub async fn update_call(muted: bool, deafened: bool, camera: bool, screen: bool, user: Auth<Principal>) -> Answer<()> {
@@ -206,7 +215,7 @@ pub async fn update_call(muted: bool, deafened: bool, camera: bool, screen: bool
             Some(space_id) => a.db.space(space_id).await.ok(),
             None => None,
         };
-        if !muted && !deafened && !perms::can_speak(&channel_row, space.as_ref(), account.id()) {
+        if !muted && !deafened && !perms::can_at(&channel_row, space.as_ref(), account.id(), perms::Permission::VoiceSpeak) {
             return Err(forbidden("You can't speak in this call."));
         }
         // A timed-out member is held out of speaking until it expires.
@@ -217,10 +226,10 @@ pub async fn update_call(muted: bool, deafened: bool, camera: bool, screen: bool
                 }
             }
         }
-        if camera && !perms::can_video(&channel_row, space.as_ref(), account.id()) {
+        if camera && !perms::can_at(&channel_row, space.as_ref(), account.id(), perms::Permission::VoiceVideo) {
             return Err(forbidden("You can't use a camera here."));
         }
-        if screen && !perms::can_share(&channel_row, space.as_ref(), account.id()) {
+        if screen && !perms::can_at(&channel_row, space.as_ref(), account.id(), perms::Permission::VoiceShareScreen) {
             return Err(forbidden("You can't share your screen here."));
         }
     }
