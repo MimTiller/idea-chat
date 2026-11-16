@@ -669,6 +669,7 @@ mod tests {
             post: 0,
             members: vec![],
             archived: false,
+            overwrites: BTreeMap::new(),
             last_message: None,
             message_count: 0,
             created_by: id(1),

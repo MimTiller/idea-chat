@@ -1,7 +1,8 @@
 //! Channels: a space's text and voice channels, threads, and direct and
 //! group conversations.
 
-use chat_model::{Channel, ChannelKind, Id};
+use chat_model::{Channel, ChannelKind, Id, Overwrite};
+use std::collections::BTreeMap;
 use sqlx::{Postgres, Transaction};
 use time::OffsetDateTime;
 
@@ -44,6 +45,9 @@ pub(crate) struct ChannelRow {
     created_by: Id,
     created_at: OffsetDateTime,
     members: Vec<Id>,
+    overwrite_roles: Vec<Id>,
+    overwrite_allows: Vec<i64>,
+    overwrite_denies: Vec<i64>,
 }
 
 impl From<ChannelRow> for Channel {
@@ -66,6 +70,17 @@ impl From<ChannelRow> for Channel {
             message_count: r.message_count.max(0) as u32,
             created_by: r.created_by,
             created_at: millis(r.created_at),
+            overwrites: r.overwrite_roles.iter()
+                .zip(r.overwrite_allows.iter())
+                .zip(r.overwrite_denies.iter())
+                .map(|((role, allow), deny)| (
+                    *role,
+                    Overwrite {
+                        allow: *allow as u64,
+                        deny: *deny as u64,
+                    },
+                ))
+                .collect(),
         }
     }
 }
@@ -76,7 +91,13 @@ pub(crate) const CHANNEL_SELECT: &str = "SELECT c.id, c.kind, c.space_id, c.name
      c.parent_id, c.starter_id, c.view_mask, c.post_mask, c.archived, c.last_message_id, c.message_count, \
      c.created_by, c.created_at, \
      coalesce((SELECT array_agg(m.user_id ORDER BY m.joined_at) FROM channel_members m WHERE m.channel_id = c.id), \
-              '{}') AS members \
+              '{}') AS members, \
+     coalesce((SELECT array_agg(o.role_id ORDER BY o.role_id) FROM channel_overwrites o WHERE o.channel_id = c.id), \
+              '{}') AS overwrite_roles, \
+     coalesce((SELECT array_agg(o.allow ORDER BY o.role_id) FROM channel_overwrites o WHERE o.channel_id = c.id), \
+              '{}') AS overwrite_allows, \
+     coalesce((SELECT array_agg(o.deny ORDER BY o.role_id) FROM channel_overwrites o WHERE o.channel_id = c.id), \
+              '{}') AS overwrite_denies \
      FROM channels c";
 
 pub(crate) async fn insert_channel(tx: &mut Transaction<'_, Postgres>, init: &ChannelInit) -> Result<Id> {

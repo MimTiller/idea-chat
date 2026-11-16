@@ -114,7 +114,7 @@ pub async fn send(
     if attachments.len() > 10 {
         return Err(invalid("attachments")("At most 10 files per message.".into()));
     }
-    if !attachments.is_empty() && !chat_model::perms::can_attach(space.as_ref(), me) {
+    if !attachments.is_empty() && !chat_model::perms::can_attach(&c, space.as_ref(), me) {
         return Err(forbidden("You can't attach files in this channel."));
     }
     let text = chat_model::text::message(&body).map_err(invalid("body"))?;
@@ -123,7 +123,7 @@ pub async fn send(
     }
     // A link the reader expands needs EmbedLink. The body is checked where
     // the server sees it — message bodies reach the server in cleartext.
-    if chat_model::text::embeds(&text) && !chat_model::perms::can_embed(space.as_ref(), me) {
+    if chat_model::text::embeds(&text) && !chat_model::perms::can_embed(&c, space.as_ref(), me) {
         return Err(forbidden("You can't post links here."));
     }
     // Who can be mentioned: the space's members, or the conversation's.
@@ -183,7 +183,7 @@ pub async fn edit(id: Id, body: String, user: Auth<Principal>) -> Answer<Message
     let a = app();
     let m = a.db.message(id).await.map_err(db)?;
     let (me, c, access, space) = open(&user.0, m.channel).await?;
-    if !chat_model::perms::can_edit_message(space.as_ref(), me, m.author) || !matches!(m.kind, MessageKind::Text) {
+    if !chat_model::perms::can_edit_message(&c, space.as_ref(), me, m.author) || !matches!(m.kind, MessageKind::Text) {
         return Err(forbidden("You can only edit your own messages."));
     }
     if !access.can_post() {
@@ -195,7 +195,7 @@ pub async fn edit(id: Id, body: String, user: Auth<Principal>) -> Answer<Message
     }
     // An edit that leaves a link in the body needs EmbedLink as much as
     // posting one did.
-    if chat_model::text::embeds(&text) && !chat_model::perms::can_embed(space.as_ref(), me) {
+    if chat_model::text::embeds(&text) && !chat_model::perms::can_embed(&c, space.as_ref(), me) {
         return Err(forbidden("You can't post links here."));
     }
     let audience: Vec<Id> = match &space {
@@ -223,7 +223,7 @@ pub async fn delete(id: Id, user: Auth<Principal>) -> Answer<()> {
     let a = app();
     let m = a.db.message(id).await.map_err(db)?;
     let (me, c, _, space) = open(&user.0, m.channel).await?;
-    if !chat_model::perms::can_delete_message(space.as_ref(), me, m.author) {
+    if !chat_model::perms::can_delete_message(&c, space.as_ref(), me, m.author) {
         return Err(forbidden("You can't delete that."));
     }
     let keys = a.db.delete_message(id).await.map_err(db)?;
@@ -251,7 +251,7 @@ pub async fn react(id: Id, emoji: String, add: bool, user: Auth<Principal>) -> A
     if !access.can_read() || c.archived {
         return Err(forbidden("You can't react here."));
     }
-    if !chat_model::perms::can_react(space.as_ref(), me) {
+    if !chat_model::perms::can_react(&c, space.as_ref(), me) {
         return Err(forbidden("You can't react in this channel."));
     }
     if add && !m.reactions.iter().any(|r| r.emoji == emoji) && a.db.reaction_kinds(id).await.map_err(db)? >= REACTION_KINDS {

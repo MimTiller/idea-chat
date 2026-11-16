@@ -113,7 +113,7 @@ pub async fn join_call(channel: Id, device: Id, user: Auth<Principal>) -> Answer
     if !access.can_post() {
         return Err(forbidden("You can't join this call."));
     }
-    if !chat_model::perms::can_connect(space.as_ref(), me) {
+    if !chat_model::perms::can_connect(&c, space.as_ref(), me) {
         return Err(forbidden("You can't join this call."));
     }
     let a = app();
@@ -206,7 +206,7 @@ pub async fn update_call(muted: bool, deafened: bool, camera: bool, screen: bool
             Some(space_id) => a.db.space(space_id).await.ok(),
             None => None,
         };
-        if !muted && !deafened && !perms::can_speak(space.as_ref(), account.id()) {
+        if !muted && !deafened && !perms::can_speak(&channel_row, space.as_ref(), account.id()) {
             return Err(forbidden("You can't speak in this call."));
         }
         // A timed-out member is held out of speaking until it expires.
@@ -217,10 +217,10 @@ pub async fn update_call(muted: bool, deafened: bool, camera: bool, screen: bool
                 }
             }
         }
-        if camera && !perms::can_video(space.as_ref(), account.id()) {
+        if camera && !perms::can_video(&channel_row, space.as_ref(), account.id()) {
             return Err(forbidden("You can't use a camera here."));
         }
-        if screen && !perms::can_share(space.as_ref(), account.id()) {
+        if screen && !perms::can_share(&channel_row, space.as_ref(), account.id()) {
             return Err(forbidden("You can't share your screen here."));
         }
     }
