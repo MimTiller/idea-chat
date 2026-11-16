@@ -264,19 +264,28 @@ impl Db {
                 .bind(parent.unwrap_or(new.channel))
                 .fetch_one(&mut *tx)
                 .await?;
-            // Members who can see an @everyone: the owner whatever their roles,
-            // or anyone holding a role whose permissions cover the channel's view mask.
-            sqlx::query_scalar(
-                "SELECT user_id FROM space_members WHERE space_id = $1 AND user_id <> $2 AND \
-                 (user_id = (SELECT owner_id FROM spaces WHERE id = $1) \
-                  OR EXISTS ((SELECT role_id FROM space_roles AS sr WHERE sr.space_id = $1 AND sr.role_id = ANY(role_ids) \
-                   AND sr.permissions & $3 = $3)))",
+            // The members whose roles together cover the channel's view mask,
+            // each member's permissions being the union of the roles they hold.
+            let role_rows: Vec<(Id, i64)> = sqlx::query_as(
+                "SELECT role_id, permissions FROM space_roles WHERE space_id = $1",
+            )
+            .bind(space)
+            .fetch_all(&mut *tx)
+            .await?;
+            let role_bits: HashMap<Id, i64> = role_rows.into_iter().collect();
+            let holders: Vec<(Id, bool, Vec<Id>)> = sqlx::query_as(
+                "SELECT user_id, user_id = (SELECT owner_id FROM spaces WHERE id = $1), role_ids \
+                 FROM space_members WHERE space_id = $1 AND user_id <> $2",
             )
             .bind(space)
             .bind(new.author)
-            .bind(view)
             .fetch_all(&mut *tx)
-            .await?
+            .await?;
+            holders.iter()
+                .filter(|(_, owner, role_ids)|
+                    *owner || role_ids.iter().fold(0i64, |acc, role| acc | role_bits.get(role).copied().unwrap_or(0)) & view == view)
+                .map(|(user, _, _)| *user)
+                .collect::<Vec<Id>>()
         } else {
             // Named people, if they are in the space.
             sqlx::query_scalar(
@@ -568,20 +577,5 @@ impl Db {
             .into_iter()
             .map(|(c, last_read, mentions)| (c, chat_model::ReadState { last_read, mentions: mentions.max(0) as u32 }))
             .collect())
-    }
-
-    /// Ids of members of `space` whose effective permissions cover `mask`
-    /// (the owner always does).
-    pub async fn members_covering(&self, space: Id, mask: u64) -> Result<Vec<Id>> {
-        Ok(sqlx::query_scalar(
-            "SELECT user_id FROM space_members WHERE space_id = $1 AND \
-             (user_id = (SELECT owner_id FROM spaces WHERE id = $1) \
-              OR EXISTS ((SELECT role_id FROM space_roles AS sr WHERE sr.space_id = $1 AND sr.role_id = ANY(role_ids) \
-              AND sr.permissions & $2 = $2)))",
-        )
-            .bind(space)
-            .bind(mask as i64)
-            .fetch_all(&self.pool)
-            .await?)
     }
 }

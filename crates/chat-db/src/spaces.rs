@@ -263,7 +263,7 @@ impl Db {
     /// Rename a role and restate its permissions, in place.
     pub async fn update_role(&self, space: Id, role: Id, name: &str, permissions: u64) -> Result<()> {
         sqlx::query(
-            "UPDATE space_roles SET name = $4, permissions = $5 WHERE space_id = $1 AND role_id = $2",
+            "UPDATE space_roles SET name = $3, permissions = $4 WHERE space_id = $1 AND role_id = $2",
         )
             .bind(space)
             .bind(role)
@@ -285,7 +285,7 @@ impl Db {
             .execute(&mut *tx)
             .await?;
         sqlx::query(
-            "UPDATE space_members SET role_ids = role_ids - ARRAY[$2::uuid] WHERE space_id = $1 AND $2::uuid = ANY role_ids",
+            "UPDATE space_members SET role_ids = array_remove(role_ids, $2::uuid) WHERE space_id = $1 AND $2::uuid = ANY (role_ids)",
         )
             .bind(space)
             .bind(role)
