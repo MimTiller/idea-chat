@@ -128,6 +128,55 @@ pub async fn remove_member(space: Id, member: Id, user: Auth<Principal>) -> Answ
     Ok(())
 }
 
+/// Ban someone: they leave now, and a ban holds the seat closed until unban.
+#[server]
+pub async fn ban_member(space: Id, member: Id, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::live::Event;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, resync, space_topic};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can_ban(&s, me, member) {
+        return Err(forbidden("You can't ban them."));
+    }
+    app().db.ban(space, member).await.map_err(db)?;
+    app().bus.publish(vec![space_topic(space)], Event::MemberLeft { space, user: member }).await;
+    app().bus.to_user(member, Event::SpaceRemoved { space }).await;
+    resync(&[member]).await;
+    Ok(())
+}
+
+/// Lift a ban. They come back the way anyone does: through an invite.
+#[server]
+pub async fn unban_member(space: Id, member: Id, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    // The banned person is out of the space, so rank cannot be compared
+    // against their seat; the permission bit is what buys the lift.
+    if !perms::can(&s, me, Permission::BanMembers) {
+        return Err(forbidden("You can't unban them."));
+    }
+    app().db.unban(space, member).await.map_err(db)?;
+    Ok(())
+}
+
+/// Time someone out for `minutes`, or clear their timeout with `None`. A
+/// timed-out member cannot send or speak until it expires.
+#[server]
+pub async fn timeout_member(space: Id, member: Id, minutes: Option<u32>, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can_timeout(&s, me, member) {
+        return Err(forbidden("You can't time them out."));
+    }
+    app().db.set_timeout(space, member, minutes).await.map_err(db)?;
+    Ok(())
+}
+
 /// Set the roles someone holds. The caller moderates the target and manages
 /// roles — clearing a member's roles is an act too — and no role handed out
 /// carries power the caller does not hold.

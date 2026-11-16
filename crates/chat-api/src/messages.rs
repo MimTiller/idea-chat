@@ -98,6 +98,12 @@ pub async fn send(
         return Err(forbidden(if c.archived { "This thread is archived." } else { "You can't post in this channel." }));
     }
     let a = app();
+    // A timed-out member cannot send until their timeout expires.
+    if let Some(s) = space.as_ref() {
+        if a.db.timed_out(s.id, me).await.map_err(db)? {
+            return Err(forbidden("You are timed out in this space."));
+        }
+    }
     if c.kind == ChannelKind::Direct {
         if let Some(other) = c.members.iter().find(|m| **m != me) {
             if a.db.blocked_between(me, *other).await.map_err(db)? {

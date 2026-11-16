@@ -86,8 +86,12 @@ pub enum Permission {
     // ---- space ----
     /// Create, rename and delete roles.
     ManageRoles,
-    /// Kick, ban and time out members.
+    /// Remove members from the space.
     ManageMembers,
+    /// Ban members so they cannot rejoin until unbanned.
+    BanMembers,
+    /// Time members out so they cannot send or speak until it expires.
+    TimeoutMembers,
     /// Change the space's own settings.
     ManageSpaceSettings,
     /// Every permission. A role with this bit is an admin whatever else it
@@ -121,6 +125,8 @@ impl Permission {
             Permission::ManageRoles => 19,
             Permission::ManageMembers => 20,
             Permission::ManageSpaceSettings => 21,
+            Permission::BanMembers => 22,
+            Permission::TimeoutMembers => 23,
             Permission::IsAdmin => 63,
         }
     }
@@ -128,7 +134,7 @@ impl Permission {
 
 /// Every permission: what the owner holds, and what a role tagged admin
 /// expands to.
-pub const ALL: u64 = (1u64 << 63) | ((1u64 << 22) - 1);
+pub const ALL: u64 = (1u64 << 63) | ((1u64 << 24) - 1);
 
 /// The admin tag alone: what a channel asks of its admins, and what a
 /// permission set must cover to count as an admin (for the roster).
@@ -295,6 +301,24 @@ pub fn reaches_role(space: &Space, actor: Id, position: i32) -> bool {
 pub fn can_edit_role(space: &Space, actor: Id, role: Id) -> bool {
     can(space, actor, Permission::ManageRoles)
         && reaches_role(space, actor, space.roles.get(&role).map(|r| r.position).unwrap_or(0))
+}
+
+/// Banning someone: their space role's [`Permission::BanMembers`] bit buys
+/// it (the owner always may) and only at their own rank or below, like any
+/// other act on a member. Never the owner — they are moved by transfer.
+pub fn can_ban(space: &Space, actor: Id, target: Id) -> bool {
+    can_moderate(space, actor, target)
+        && can(space, actor, Permission::BanMembers)
+}
+
+/// Timing someone out: their space role's [`Permission::TimeoutMembers`] bit
+/// buys it (the owner always may), at their own rank or below. The target
+/// must be a member, and never the owner.
+pub fn can_timeout(space: &Space, actor: Id, target: Id) -> bool {
+    space.members.contains_key(&target)
+        && target != space.owner
+        && (actor == space.owner
+            || (can(space, actor, Permission::TimeoutMembers) && reaches(space, actor, target)))
 }
 
 /// Whether `user` may manage a space's settings through an optional space.
@@ -521,6 +545,21 @@ mod tests {
         raised.everyone = DEFAULT_EVERYONE | Permission::ManageMembers.bit();
         assert!(!has(effective(&base, id(2)).unwrap_or(EVERYONE), Permission::ManageMembers));
         assert!(has(effective(&raised, id(2)).unwrap_or(EVERYONE), Permission::ManageMembers));
+    }
+
+    #[test]
+    fn the_new_bits_stay_inside_all() {
+        assert_eq!(
+            Permission::BanMembers.bit() | Permission::TimeoutMembers.bit() | Permission::IsAdmin.bit() | (1u64 << 22) - 1,
+            ALL,
+            "the ban and timeout bits sit in the space and ALL covers exactly the defined bits",
+        );
+        for p in [Permission::BanMembers, Permission::TimeoutMembers] {
+            assert!((ALL & p.bit()) == p.bit(), "ALL holds every defined bit");
+        }
+        for unused in 24..63 {
+            assert_eq!(ALL & (1u64 << unused), 0, "no invented bit slipped into ALL");
+        }
     }
 
     #[test]

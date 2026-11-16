@@ -209,6 +209,14 @@ pub async fn update_call(muted: bool, deafened: bool, camera: bool, screen: bool
         if !muted && !deafened && !perms::can_speak(space.as_ref(), account.id()) {
             return Err(forbidden("You can't speak in this call."));
         }
+        // A timed-out member is held out of speaking until it expires.
+        if !muted && !deafened && space.is_some() {
+            if let Some(space_id) = channel_row.space {
+                if a.db.timed_out(space_id, account.id()).await.map_err(db)? {
+                    return Err(forbidden("You are timed out in this space."));
+                }
+            }
+        }
         if camera && !perms::can_video(space.as_ref(), account.id()) {
             return Err(forbidden("You can't use a camera here."));
         }
