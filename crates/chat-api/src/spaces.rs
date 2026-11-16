@@ -223,12 +223,15 @@ pub async fn transfer_space(space: Id, to: Id, user: Auth<Principal>) -> Answer<
     Ok(())
 }
 
-/// Make an invite. `max_uses` and `hours` of `None` mean unlimited.
-#[server]
+/// Make an invite. Managing invites is what buys it: a plain member cannot
+/// hand out ways into a space.
+#[server(tags(limit = "10/min"))]
 pub async fn create_invite(space: Id, max_uses: Option<u32>, hours: Option<u32>, user: Auth<Principal>) -> Answer<Invite> {
-    use crate::srv::{app, db};
-    // Anyone in a space may invite to it; managing invites is for admins.
-    let (me, _) = body::member(&user.0, space).await?;
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !chat_model::perms::can_invite(&s, me) {
+        return Err(forbidden("Only those who manage invites can make one."));
+    }
     let expires = hours.map(|h| time::OffsetDateTime::now_utc() + time::Duration::hours(h.clamp(1, 24 * 30) as i64));
     app().db.create_invite(space, me, max_uses.map(|m| m.clamp(1, 1000)), expires).await.map_err(db)
 }
@@ -236,15 +239,23 @@ pub async fn create_invite(space: Id, max_uses: Option<u32>, hours: Option<u32>,
 /// A space's invites that still work.
 #[server]
 pub async fn invites(space: Id, user: Auth<Principal>) -> Answer<Vec<Invite>> {
-    use crate::srv::{app, db};
-    body::manager(&user.0, space).await?;
+    use chat_model::perms;
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can_invite(&s, me) {
+        return Err(forbidden("Only those who manage invites can see them."));
+    }
     app().db.invites(space).await.map_err(db)
 }
 
 #[server]
 pub async fn revoke_invite(space: Id, code: String, user: Auth<Principal>) -> Answer<()> {
-    use crate::srv::{app, db};
-    body::manager(&user.0, space).await?;
+    use chat_model::perms;
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can_invite(&s, me) {
+        return Err(forbidden("Only those who manage invites can revoke one."));
+    }
     app().db.revoke_invite(space, &code).await.map_err(db)
 }
 

@@ -294,6 +294,16 @@ pub enum Block {
     Code(String),
 }
 
+/// Whether a body carries a link a reader would expand: the EmbedLink
+/// permission's subject. Code stays code, as in the drawing.
+pub fn embeds(body: &str) -> bool {
+    parse(body).iter().any(|block| match block {
+        Block::Code(_) => false,
+        Block::Paragraph(runs) | Block::Quote(runs) =>
+            runs.iter().any(|run| matches!(run, Inline::Link { .. })),
+    })
+}
+
 /// Read a stored body into blocks of styled runs.
 pub fn parse(body: &str) -> Vec<Block> {
     let mut blocks = Vec::new();

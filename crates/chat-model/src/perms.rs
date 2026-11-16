@@ -247,6 +247,75 @@ pub fn manages(space: &Option<Space>, user: Id) -> bool {
     space.as_ref().is_some_and(|s| can(s, user, Permission::ManageSpaceSettings))
 }
 
+/// Whether `user` may set who sees and posts in a channel, through an
+/// optional space: [`Permission::ManageChannelRoles`] buys it.
+pub fn manages_channel(space: &Option<Space>, user: Id) -> bool {
+    space.as_ref().is_some_and(|s| can(s, user, Permission::ManageChannelRoles))
+}
+
+// ---- per-act rules, one copy each: the server decides, the client hides ----
+
+/// Whether `user` may do `what` at a channel. Outside a space — a direct or
+/// group conversation — there are no roles to consult, so the act is open to
+/// anyone the conversation itself admits.
+pub fn can_act(space: Option<&Space>, user: Id, what: Permission) -> bool {
+    space.is_none_or(|s| can(s, user, what))
+}
+
+/// Reacting to a message: [`Permission::AddReaction`] buys it.
+pub fn can_react(space: Option<&Space>, user: Id) -> bool {
+    can_act(space, user, Permission::AddReaction)
+}
+
+/// Attaching a file to a message: [`Permission::AttachFile`] buys it. The
+/// upload itself is not the act — a file is only attached when the message
+/// that claims it is posted — so the server checks where the message lands.
+pub fn can_attach(space: Option<&Space>, user: Id) -> bool {
+    can_act(space, user, Permission::AttachFile)
+}
+
+/// Posting a link a reader expands: [`Permission::EmbedLink`] buys it. The
+/// server sees the act because it reads the message bodies it is handed
+/// (`send` and `edit` resolve mentions in the cleartext they were given), so
+/// this is checked where the act is, not guessed from encrypted content.
+pub fn can_embed(space: Option<&Space>, user: Id) -> bool {
+    can_act(space, user, Permission::EmbedLink)
+}
+
+/// Joining a channel's call: [`Permission::VoiceConnect`] buys it.
+pub fn can_connect(space: Option<&Space>, user: Id) -> bool {
+    can_act(space, user, Permission::VoiceConnect)
+}
+
+/// Unmuting their microphone in a call: [`Permission::VoiceSpeak`] buys it.
+pub fn can_speak(space: Option<&Space>, user: Id) -> bool {
+    can_act(space, user, Permission::VoiceSpeak)
+}
+
+/// Using a camera in a call: [`Permission::VoiceVideo`] buys it.
+pub fn can_video(space: Option<&Space>, user: Id) -> bool {
+    can_act(space, user, Permission::VoiceVideo)
+}
+
+/// Sharing a screen in a call: [`Permission::VoiceShareScreen`] buys it.
+pub fn can_share(space: Option<&Space>, user: Id) -> bool {
+    can_act(space, user, Permission::VoiceShareScreen)
+}
+
+/// [`Permission::VoiceForceMute`] and [`Permission::VoiceMoveMember`] act on
+/// other people's calls, and this stack has no verb that does: muting in
+/// `update_call` is self-service, and the relay only takes a person out when
+/// their own connection drops. There is no server site to check the bits
+/// against, so no check is added — a gate over a control that does not exist
+/// would be a fake one. The bits stay defined for the day those controls
+/// arrive, where they will gate through `can`.
+
+/// Making an invite: [`Permission::ManageInvites`] buys it (the owner always
+/// may, holding everything). Revoking one is the same act.
+pub fn can_invite(space: &Space, user: Id) -> bool {
+    can(space, user, Permission::ManageInvites)
+}
+
 /// Whether `actor` may hand the space to `target`: the owner only, to a
 /// member who is not already the owner. Ownership never comes from a role,
 /// so no permission buys this.
@@ -254,18 +323,20 @@ pub fn can_transfer(space: &Space, actor: Id, target: Id) -> bool {
     actor == space.owner && target != space.owner && space.members.contains_key(&target)
 }
 
-/// Deleting a message: its author always (a role's
-/// [`Permission::DeleteOwnMessage`] governs whether they may), and anyone
-/// whose set covers [`Permission::DeleteOthersMessage`] for someone else's.
+/// Deleting a message: its author, where the role's
+/// [`Permission::DeleteOwnMessage`] allows it (in a conversation, outside any
+/// space, there are no roles to consult, so the author may), and anyone whose
+/// set covers [`Permission::DeleteOthersMessage`] for someone else's.
 pub fn can_delete_message(space: Option<&Space>, user: Id, author: Id) -> bool {
-    user == author
+    (user == author && can_act(space, user, Permission::DeleteOwnMessage))
         || space.is_some_and(|s| can(s, user, Permission::DeleteOthersMessage))
 }
 
-/// Editing a message: only its author, and only with the permission.
+/// Editing a message: only its author, and only with the
+/// [`Permission::EditOwnMessage`] permission — outside a space the act is
+/// open to the author.
 pub fn can_edit_message(space: Option<&Space>, user: Id, author: Id) -> bool {
-    user == author
-        && space.is_some_and(|s| can(s, user, Permission::EditOwnMessage))
+    user == author && can_act(space, user, Permission::EditOwnMessage)
 }
 
 #[cfg(test)]

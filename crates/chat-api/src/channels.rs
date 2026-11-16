@@ -104,6 +104,14 @@ pub async fn update_channel(
     if !chat_model::perms::manages(&space, me) {
         return Err(forbidden("Only admins can change channels."));
     }
+    // Setting who may see and post in a channel is what ManageChannelRoles
+    // buys: only when the masks actually move, a name or topic change does
+    // not need it.
+    if (view, post) != (c.view, c.post)
+        && !chat_model::perms::manages_channel(&space, me)
+    {
+        return Err(forbidden("Only those who manage channel roles can change that."));
+    }
     let name = chat_model::text::channel_name(&name).map_err(invalid("name"))?;
     let topic = chat_model::text::about(&topic).map_err(invalid("topic"))?;
     let updated = app().db.update_channel(channel, &name, &topic, category, view, post).await.map_err(db)?;

@@ -108,9 +108,17 @@ pub async fn send(
     if attachments.len() > 10 {
         return Err(invalid("attachments")("At most 10 files per message.".into()));
     }
+    if !attachments.is_empty() && !chat_model::perms::can_attach(space.as_ref(), me) {
+        return Err(forbidden("You can't attach files in this channel."));
+    }
     let text = chat_model::text::message(&body).map_err(invalid("body"))?;
     if text.is_empty() && attachments.is_empty() {
         return Err(invalid("body")("Write something first.".into()));
+    }
+    // A link the reader expands needs EmbedLink. The body is checked where
+    // the server sees it — message bodies reach the server in cleartext.
+    if chat_model::text::embeds(&text) && !chat_model::perms::can_embed(space.as_ref(), me) {
+        return Err(forbidden("You can't post links here."));
     }
     // Who can be mentioned: the space's members, or the conversation's.
     let audience: Vec<Id> = match &space {
@@ -179,6 +187,11 @@ pub async fn edit(id: Id, body: String, user: Auth<Principal>) -> Answer<Message
     if text.is_empty() && m.attachments.is_empty() {
         return Err(invalid("body")("A message can't be empty. Delete it instead.".into()));
     }
+    // An edit that leaves a link in the body needs EmbedLink as much as
+    // posting one did.
+    if chat_model::text::embeds(&text) && !chat_model::perms::can_embed(space.as_ref(), me) {
+        return Err(forbidden("You can't post links here."));
+    }
     let audience: Vec<Id> = match &space {
         Some(s) => s.members.keys().copied().collect(),
         None => c.members.clone(),
@@ -228,9 +241,12 @@ pub async fn react(id: Id, emoji: String, add: bool, user: Auth<Principal>) -> A
     }
     let a = app();
     let m = a.db.message(id).await.map_err(db)?;
-    let (me, c, access, _) = open(&user.0, m.channel).await?;
+    let (me, c, access, space) = open(&user.0, m.channel).await?;
     if !access.can_read() || c.archived {
         return Err(forbidden("You can't react here."));
+    }
+    if !chat_model::perms::can_react(space.as_ref(), me) {
+        return Err(forbidden("You can't react in this channel."));
     }
     if add && !m.reactions.iter().any(|r| r.emoji == emoji) && a.db.reaction_kinds(id).await.map_err(db)? >= REACTION_KINDS {
         return Err(forbidden("That message has all the reactions it can take."));
