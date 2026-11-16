@@ -2,6 +2,7 @@
 //! `CHAT_TEST_DATABASE_URL` (a server URL; each test makes its own database).
 
 use chat_db::{CodeCheck, CodePurpose, Db, InviteOutcome, NewAccount, NewMessage, NewSpace};
+use chat_model::perms::Permission;
 use chat_model::{ChannelKind, Id, MessageKind, Presence, Relation, Status};
 use sqlx::Connection;
 
@@ -153,6 +154,31 @@ async fn the_owner_cannot_leave_but_can_transfer() {
     assert_eq!(db.role_ids(space.id, bob).await.unwrap(), Some(Vec::<Id>::new()));
     db.remove_member(space.id, ana).await.unwrap();
     assert_eq!(db.space(space.id).await.unwrap().owner, bob);
+}
+
+#[tokio::test]
+async fn roles_are_created_named_and_deleted_with_their_holders() {
+    let Some(db) = db().await else { return };
+    let ana = account(&db, "ana").await;
+    let (space, _) = db.create_space(&NewSpace { name: "Club".into(), owner: ana }).await.unwrap();
+    let bob = account(&db, "bob").await;
+    let invite = db.create_invite(space.id, ana, None, None).await.unwrap();
+    db.redeem_invite(&invite.code, bob).await.unwrap();
+
+    let role = db.create_role(space.id, "Mod", Permission::ManageMembers.bit()).await.unwrap();
+    db.set_role_ids(space.id, bob, &[role.id]).await.unwrap();
+    assert_eq!(db.role_ids(space.id, bob).await.unwrap(), Some(vec![role.id]));
+
+    db.update_role(space.id, role.id, "Moderator", Permission::ManageMembers.bit() | Permission::ManagePins.bit()).await.unwrap();
+    let after_update = db.space(space.id).await.unwrap();
+    let updated = after_update.roles.get(&role.id).unwrap();
+    assert_eq!(updated.name, "Moderator");
+    assert_eq!(updated.permissions, Permission::ManageMembers.bit() | Permission::ManagePins.bit());
+
+    db.delete_role(space.id, role.id).await.unwrap();
+    let after = db.space(space.id).await.unwrap();
+    assert_eq!(db.role_ids(space.id, bob).await.unwrap(), Some(Vec::<Id>::new()));
+    assert!(after.roles.is_empty());
 }
 
 #[tokio::test]
