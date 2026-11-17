@@ -628,6 +628,51 @@ pub struct Roster {
     pub offline: Vec<Id>,
 }
 
+/// The topic a space's shared events ride, the topic a channel's own gated
+/// events ride, and the topic a viewer's presence rides. A space channel
+/// rides its own topic only when it is gated — see
+/// [`crate::perms::rides_own_topic`] — so only the viewers who may read it
+/// subscribe to it; the fan-out, not the client, is what enforces reading.
+pub fn space_topic(space: Id) -> String {
+    format!("s:{space}")
+}
+
+pub fn conversation_topic(channel: Id) -> String {
+    format!("c:{channel}")
+}
+
+pub fn user_topic(user: Id) -> String {
+    format!("u:{user}")
+}
+
+/// Everything the viewer of `state` hears: their presence topic, each space's
+/// shared topic, each conversation they are in, and each gated space channel
+/// they may read — judged by the parent's rules for a thread, so a subscription
+/// follows exactly what [`crate::perms::channel_access`] decides they see. The
+/// server uses this on every recompute; the tests exercise the same path.
+pub fn topics_for(state: &State) -> Vec<String> {
+    use crate::perms::{channel_access, rides_own_topic};
+
+    let Some(me) = state.me_id() else { return Vec::new() };
+    let mut topics = vec![user_topic(me)];
+    for space in state.spaces.values() {
+        topics.push(space_topic(space.id));
+    }
+    for c in state.channels.values() {
+        if c.kind.is_private() {
+            topics.push(conversation_topic(c.id));
+            continue;
+        }
+        let Some(s) = c.space.and_then(|id| state.spaces.get(&id)) else { continue };
+        // A thread is judged by its parent's rules and overwrites.
+        let rules = c.parent.and_then(|p| state.channels.get(&p)).unwrap_or(c);
+        if rides_own_topic(rules, s.everyone) && channel_access(me, rules, Some(s)).can_read() {
+            topics.push(conversation_topic(c.id));
+        }
+    }
+    topics
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

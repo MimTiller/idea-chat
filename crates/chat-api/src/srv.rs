@@ -144,26 +144,11 @@ pub fn space_topic(space: Id) -> String {
     format!("s:{space}")
 }
 
-/// Everything `viewer` hears, given their live state.
+/// Everything `viewer` hears, given their live state. Delegates to the shared
+/// [`chat_model::live::topics_for`], so the server's recompute and the
+/// viewer's own view use one rule.
 pub fn topics_for(state: &chat_model::live::State) -> Vec<String> {
-    let Some(me) = state.me_id() else { return Vec::new() };
-    let mut topics = vec![user_topic(me)];
-    for space in state.spaces.values() {
-        topics.push(space_topic(space.id));
-    }
-    for c in state.channels.values() {
-        if c.kind.is_private() {
-            topics.push(conversation_topic(c.id));
-            continue;
-        }
-        let Some(s) = c.space.and_then(|id| state.spaces.get(&id)) else { continue };
-        // A thread is judged by its parent's rules and overwrites.
-        let rules = c.parent.and_then(|p| state.channels.get(&p)).unwrap_or(c);
-        if rides_own_topic(rules, s.everyone) && channel_access(me, rules, Some(s)).can_read() {
-            topics.push(conversation_topic(c.id));
-        }
-    }
-    topics
+    chat_model::live::topics_for(state)
 }
 
 /// Everything `user` hears, from the database — for registering a
