@@ -638,12 +638,12 @@ fn RowTools(#[prop(static)] channel: Id, #[prop(static)] id: Id, #[prop(static)]
     let s = store();
     let ui = s.ui();
     let me = s.me();
-    let (in_space, admin, can_post, is_thread) = s.peek(|st| {
+    let (in_space, can_delete, can_post, is_thread) = s.peek(|st| {
         let c = st.channels.get(&channel);
         let space = c.and_then(|c| c.space);
         (
             space.is_some(),
-            space.and_then(|sp| st.my_role(sp)).is_some_and(chat_model::perms::can_manage_space),
+            c.is_some_and(|c| chat_model::perms::can_delete_message(c, st.space_of(c), st.me_id().unwrap_or_default(), author)),
             st.access(channel).can_post(),
             c.is_some_and(|c| c.kind == chat_model::ChannelKind::Thread),
         )
@@ -688,7 +688,7 @@ fn RowTools(#[prop(static)] channel: Id, #[prop(static)] id: Id, #[prop(static)]
             if mine && can_post {
                 Action(icon = PENCIL, label = "Edit".to_string(), size = idea_ui::IconButtonSize::Sm, on_click = edit.clone())
             }
-            if mine || admin {
+            if can_delete {
                 Action(icon = TRASH_2, label = "Delete".to_string(), size = idea_ui::IconButtonSize::Sm, tone = tone::Danger, on_click = delete.clone())
             }
         }

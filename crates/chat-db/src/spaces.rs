@@ -32,6 +32,7 @@ struct SpaceRow {
     name: String,
     icon: Option<String>,
     owner_id: Id,
+    everyone: i64,
     created_at: OffsetDateTime,
 }
 
@@ -74,10 +75,11 @@ impl Db {
     pub async fn create_space(&self, new: &NewSpace) -> Result<(Space, Vec<Channel>)> {
         let mut tx = self.pool.begin().await?;
         let id = new_id();
-        sqlx::query("INSERT INTO spaces (id, name, owner_id) VALUES ($1, $2, $3)")
+        sqlx::query("INSERT INTO spaces (id, name, owner_id, everyone) VALUES ($1, $2, $3, $4)")
             .bind(id)
             .bind(&new.name)
             .bind(new.owner)
+            .bind(chat_model::perms::DEFAULT_EVERYONE as i64)
             .execute(&mut *tx)
             .await?;
         let position: i32 = sqlx::query_scalar("SELECT coalesce(max(position) + 1, 0) FROM space_members WHERE user_id = $1")
@@ -126,7 +128,7 @@ impl Db {
 
     /// A space, with its members and categories.
     pub async fn space(&self, id: Id) -> Result<Space> {
-        let row: SpaceRow = sqlx::query_as("SELECT id, name, icon, owner_id, created_at FROM spaces WHERE id = $1")
+        let row: SpaceRow = sqlx::query_as("SELECT id, name, icon, owner_id, everyone, created_at FROM spaces WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
@@ -151,6 +153,7 @@ impl Db {
             name: row.name,
             icon: row.icon,
             owner: row.owner_id,
+            everyone: row.everyone as u64,
             members: members
                 .into_iter()
                 .map(|(u, rs, at)| (u, Member { roles: rs, joined_at: millis(at) }))
@@ -297,6 +300,92 @@ impl Db {
 
     /// Make `to` the owner. The old owner keeps whatever roles they hold;
     /// ownership is the space's own fact, so it simply moves.
+    /// Ban `user`: record the ban and take them out of the space now. The
+    /// ban is what keeps their seat closed while they are out of it.
+    pub async fn ban(&self, space: Id, user: Id) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO space_bans (space_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+            .bind(space)
+            .bind(user)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "DELETE FROM space_members WHERE space_id = $1 AND user_id = $2 AND user_id <> (SELECT owner_id FROM spaces WHERE id = $1)",
+        )
+            .bind(space)
+            .bind(user)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Lift a ban. The member does not come back by itself; an invite or a
+    /// space join does.
+    pub async fn unban(&self, space: Id, user: Id) -> Result<()> {
+        sqlx::query("DELETE FROM space_bans WHERE space_id = $1 AND user_id = $2")
+            .bind(space)
+            .bind(user)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Whether `user` is banned in `space`.
+    pub async fn banned(&self, space: Id, user: Id) -> Result<bool> {
+        let hit: Option<i32> = sqlx::query_scalar(
+            "SELECT 1 FROM space_bans WHERE space_id = $1 AND user_id = $2",
+        )
+            .bind(space)
+            .bind(user)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(hit.is_some())
+    }
+
+    /// Whether `user` is timed out in `space` right now: their seat stays
+    /// open, but their sends and speech are held back until the row passes.
+    pub async fn timed_out(&self, space: Id, user: Id) -> Result<bool> {
+        let hit: Option<i32> = sqlx::query_scalar(
+            "SELECT 1 FROM space_members WHERE space_id = $1 AND user_id = $2 AND timeout_ends > now()",
+        )
+            .bind(space)
+            .bind(user)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(hit.is_some())
+    }
+
+    /// Time `user` out in `space` until `until` (a fresh `now()` plus
+    /// `minutes`), or clear it with `None`.
+    pub async fn set_timeout(&self, space: Id, user: Id, minutes: Option<u32>) -> Result<()> {
+        match minutes {
+            Some(m) => {
+                sqlx::query(
+                    "UPDATE space_members SET timeout_ends = $3::interval * $4 WHERE space_id = $1 AND user_id = $2",
+                )
+                    .bind(space)
+                    .bind(user)
+                    .bind("minutes")
+                    .bind(m as i32)
+                    .execute(&self.pool)
+                    .await?;
+            }
+            None => {
+                sqlx::query(
+                    "UPDATE space_members SET timeout_ends = NULL WHERE space_id = $1 AND user_id = $2",
+                )
+                    .bind(space)
+                    .bind(user)
+                    .execute(&self.pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn transfer_space(&self, space: Id, _from: Id, to: Id) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         let is_member: Option<i32> =
@@ -465,6 +554,17 @@ impl Db {
         .fetch_optional(&mut *tx)
         .await?;
         let space = space.ok_or(Error::NotFound)?;
+        let banned: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM space_bans WHERE space_id = $1 AND user_id = $2",
+        )
+            .bind(space)
+            .bind(user)
+            .fetch_one(&mut *tx)
+            .await?;
+        if banned > 0 {
+            tx.rollback().await?;
+            return Err(Error::Refused("That invite no longer works for you.".into()));
+        }
         let position: i32 = sqlx::query_scalar("SELECT coalesce(max(position) + 1, 0) FROM space_members WHERE user_id = $1")
             .bind(user)
             .fetch_one(&mut *tx)

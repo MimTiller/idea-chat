@@ -23,6 +23,7 @@ use std::rc::Rc;
 use chat_api::live::{Down, Up};
 use chat_api::messages::Window;
 use chat_model::live::{Action, Event, State};
+use chat_model::perms;
 use chat_model::timeline::{Page, Timeline};
 use chat_model::{Id, Message};
 use idea_state::{Cursor, Step};
@@ -226,6 +227,12 @@ impl Store {
 
     pub fn me(&self) -> Option<Id> {
         self.peek(|s| s.me_id())
+    }
+
+    /// Whether the viewer manages `space`'s settings, the check the settings
+    /// modal and the space nav both ask for.
+    pub fn manages_space(&self, space: Id) -> bool {
+        self.read(|s| s.my_permissions(space).is_some_and(|p| perms::has(p, perms::Permission::ManageSpaceSettings)))
     }
 
     pub fn conn(&self) -> Signal<Conn> {

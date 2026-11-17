@@ -128,6 +128,55 @@ pub async fn remove_member(space: Id, member: Id, user: Auth<Principal>) -> Answ
     Ok(())
 }
 
+/// Ban someone: they leave now, and a ban holds the seat closed until unban.
+#[server]
+pub async fn ban_member(space: Id, member: Id, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::live::Event;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, resync, space_topic};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can_ban(&s, me, member) {
+        return Err(forbidden("You can't ban them."));
+    }
+    app().db.ban(space, member).await.map_err(db)?;
+    app().bus.publish(vec![space_topic(space)], Event::MemberLeft { space, user: member }).await;
+    app().bus.to_user(member, Event::SpaceRemoved { space }).await;
+    resync(&[member]).await;
+    Ok(())
+}
+
+/// Lift a ban. They come back the way anyone does: through an invite.
+#[server]
+pub async fn unban_member(space: Id, member: Id, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    // The banned person is out of the space, so rank cannot be compared
+    // against their seat; the permission bit is what buys the lift.
+    if !perms::can(&s, me, Permission::BanMembers) {
+        return Err(forbidden("You can't unban them."));
+    }
+    app().db.unban(space, member).await.map_err(db)?;
+    Ok(())
+}
+
+/// Time someone out for `minutes`, or clear their timeout with `None`. A
+/// timed-out member cannot send or speak until it expires.
+#[server]
+pub async fn timeout_member(space: Id, member: Id, minutes: Option<u32>, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can_timeout(&s, me, member) {
+        return Err(forbidden("You can't time them out."));
+    }
+    app().db.set_timeout(space, member, minutes).await.map_err(db)?;
+    Ok(())
+}
+
 /// Set the roles someone holds. The caller moderates the target and manages
 /// roles — clearing a member's roles is an act too — and no role handed out
 /// carries power the caller does not hold.
@@ -183,6 +232,11 @@ pub async fn update_role(space: Id, role: Id, name: String, permissions: Permiss
     if !s.roles.contains_key(&role) {
         return Err(forbidden("That role doesn't exist."));
     }
+    // Hierarchy: a member may rewrite only roles at or below their own top
+    // role; the owner is exempt.
+    if !perms::can_edit_role(&s, me, role) {
+        return Err(forbidden("You can't edit a role above your own."));
+    }
     if !perms::can_author_role(&s, me, permissions) {
         return Err(forbidden("You can't grant powers you do not have."));
     }
@@ -199,8 +253,10 @@ pub async fn delete_role(space: Id, role: Id, user: Auth<Principal>) -> Answer<(
 
     use crate::srv::{app, db, forbidden};
     let (me, s) = body::member(&user.0, space).await?;
-    if !perms::can(&s, me, Permission::ManageRoles) {
-        return Err(forbidden("Only those who manage roles can delete roles."));
+    // Hierarchy: a member may delete only roles at or below their own top
+    // role; the owner is exempt.
+    if !perms::can_edit_role(&s, me, role) {
+        return Err(forbidden("You can't delete a role above your own."));
     }
     app().db.delete_role(space, role).await.map_err(db)?;
     body::publish_roles(space).await;
@@ -223,12 +279,15 @@ pub async fn transfer_space(space: Id, to: Id, user: Auth<Principal>) -> Answer<
     Ok(())
 }
 
-/// Make an invite. `max_uses` and `hours` of `None` mean unlimited.
-#[server]
+/// Make an invite. Managing invites is what buys it: a plain member cannot
+/// hand out ways into a space.
+#[server(tags(limit = "10/min"))]
 pub async fn create_invite(space: Id, max_uses: Option<u32>, hours: Option<u32>, user: Auth<Principal>) -> Answer<Invite> {
-    use crate::srv::{app, db};
-    // Anyone in a space may invite to it; managing invites is for admins.
-    let (me, _) = body::member(&user.0, space).await?;
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !chat_model::perms::can(&s, me, chat_model::perms::Permission::ManageInvites) {
+        return Err(forbidden("Only those who manage invites can make one."));
+    }
     let expires = hours.map(|h| time::OffsetDateTime::now_utc() + time::Duration::hours(h.clamp(1, 24 * 30) as i64));
     app().db.create_invite(space, me, max_uses.map(|m| m.clamp(1, 1000)), expires).await.map_err(db)
 }
@@ -236,15 +295,23 @@ pub async fn create_invite(space: Id, max_uses: Option<u32>, hours: Option<u32>,
 /// A space's invites that still work.
 #[server]
 pub async fn invites(space: Id, user: Auth<Principal>) -> Answer<Vec<Invite>> {
-    use crate::srv::{app, db};
-    body::manager(&user.0, space).await?;
+    use chat_model::perms;
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can(&s, me, Permission::ManageInvites) {
+        return Err(forbidden("Only those who manage invites can see them."));
+    }
     app().db.invites(space).await.map_err(db)
 }
 
 #[server]
 pub async fn revoke_invite(space: Id, code: String, user: Auth<Principal>) -> Answer<()> {
-    use crate::srv::{app, db};
-    body::manager(&user.0, space).await?;
+    use chat_model::perms;
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can(&s, me, Permission::ManageInvites) {
+        return Err(forbidden("Only those who manage invites can revoke one."));
+    }
     app().db.revoke_invite(space, &code).await.map_err(db)
 }
 

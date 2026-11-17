@@ -643,6 +643,7 @@ mod tests {
             name: "Space".into(),
             icon: None,
             owner: id(1),
+            everyone: 0,
             members: members
                 .iter()
                 .map(|(u, rs)| (id(*u), Member { roles: rs.iter().map(|&n| id(n)).collect(), joined_at: 0 }))
@@ -668,6 +669,7 @@ mod tests {
             post: 0,
             members: vec![],
             archived: false,
+            overwrites: BTreeMap::new(),
             last_message: None,
             message_count: 0,
             created_by: id(1),

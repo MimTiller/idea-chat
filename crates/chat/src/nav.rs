@@ -567,7 +567,7 @@ fn SpaceNav(#[prop(static)] space: Id) -> Element {
         let s = s.clone();
         memo(move || s.read(|st| st.spaces.get(&space).map(|sp| sp.name.clone()).unwrap_or_default()))
     };
-    let role = memo(move || s.read(|st| st.my_role(space)));
+    let admin = memo(move || s.manages_space(space));
     let menu_open = signal(false);
     let anchor: Ref<PressableHandle> = Ref::new();
     ui! {
@@ -577,13 +577,13 @@ fn SpaceNav(#[prop(static)] space: Id) -> Element {
                 Icon(data = CHEVRON_DOWN, size = 16.0)
             }
             if menu_open.get() {
-                SpaceMenu(space = space, anchor = anchor, open = menu_open, admin = role.peek().is_some_and(chat_model::perms::can_manage_space))
+                SpaceMenu(space = space, anchor = anchor, open = menu_open, admin = admin.peek())
             }
             scroll_view(style = NavScroll()) {
                 view(style = NavList()) {
                     for line in lines, key = line.key() {
                         match line {
-                            Line::Category { id } => { CategoryLine(space = space, category = id, folded = folded, admin = rx!(role.get().is_some_and(chat_model::perms::can_manage_space))) }
+                            Line::Category { id } => { CategoryLine(space = space, category = id, folded = folded, admin = rx!(admin.get())) }
                             Line::Channel { id } => { ChannelLine(space = space, channel = id) }
                             Line::Thread { id } => { ThreadLine(space = space, channel = id) }
                             Line::InCall { channel, user } => { InCallLine(channel = channel, user = user) }

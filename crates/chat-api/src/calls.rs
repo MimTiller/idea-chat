@@ -106,11 +106,14 @@ pub async fn join_call(channel: Id, device: Id, user: Auth<Principal>) -> Answer
     use crate::channels::body::open;
     use crate::srv::{app, channel_topic, db, fail, forbidden, now_ms};
     use crate::ApiError;
-    let (me, c, access, _) = open(&user.0, channel).await?;
+    let (me, c, access, space) = open(&user.0, channel).await?;
     if !c.kind.has_calls() {
         return Err(forbidden("There are no calls in this channel."));
     }
     if !access.can_post() {
+        return Err(forbidden("You can't join this call."));
+    }
+    if !chat_model::perms::can_at(&c, space.as_ref(), me, chat_model::perms::Permission::VoiceConnect) {
         return Err(forbidden("You can't join this call."));
     }
     let a = app();
@@ -185,14 +188,51 @@ pub async fn leave_call(user: Auth<Principal>) -> Answer<()> {
     Ok(())
 }
 
+/// VoiceForceMute and VoiceMoveMember gate acting on someone else's call —
+/// forcing a mute, moving a member between calls. This stack has no verb
+/// that does either: `update_call` only carries the caller's own mute/deafen
+/// self-service, and `leave_call` only takes the caller out when their own
+/// connection drops. There is no server site that sees such an act, so there
+/// is nothing to check these against; Permission::VoiceForceMute and
+/// Permission::VoiceMoveMember are enforced the day such controls arrive,
+/// gating through `can_at` like the rest. This comment names them so the
+/// audit does not read the absence as a missing check.
 /// What the caller is sending in their call.
 #[server(tags(limit = "120/min"))]
 pub async fn update_call(muted: bool, deafened: bool, camera: bool, screen: bool, user: Auth<Principal>) -> Answer<()> {
     use chat_model::live::Event;
+    use chat_model::perms;
 
-    use crate::srv::{app, channel_topic, db, me};
+    use crate::srv::{app, channel_topic, db, forbidden, me};
     let account = me(&user.0).await?;
     let a = app();
+    // What the caller sends is gated by their roles: speaking (unmuting),
+    // video and screen share each need their permission. The channel they are
+    // in decides which space's roles apply.
+    if let Some((_, channel, _)) = a.db.my_room(account.id()).await.map_err(db)? {
+        let channel_row = a.db.channel(channel).await.map_err(db)?;
+        let space = match channel_row.space {
+            Some(space_id) => a.db.space(space_id).await.ok(),
+            None => None,
+        };
+        if !muted && !deafened && !perms::can_at(&channel_row, space.as_ref(), account.id(), perms::Permission::VoiceSpeak) {
+            return Err(forbidden("You can't speak in this call."));
+        }
+        // A timed-out member is held out of speaking until it expires.
+        if !muted && !deafened && space.is_some() {
+            if let Some(space_id) = channel_row.space {
+                if a.db.timed_out(space_id, account.id()).await.map_err(db)? {
+                    return Err(forbidden("You are timed out in this space."));
+                }
+            }
+        }
+        if camera && !perms::can_at(&channel_row, space.as_ref(), account.id(), perms::Permission::VoiceVideo) {
+            return Err(forbidden("You can't use a camera here."));
+        }
+        if screen && !perms::can_at(&channel_row, space.as_ref(), account.id(), perms::Permission::VoiceShareScreen) {
+            return Err(forbidden("You can't share your screen here."));
+        }
+    }
     let state = a.db.update_voice(account.id(), muted, deafened, camera, screen).await.map_err(db)?;
     let c = a.db.channel(state.channel).await.map_err(db)?;
     a.bus.publish(vec![channel_topic(&c).await?], Event::VoiceUpdated { state }).await;

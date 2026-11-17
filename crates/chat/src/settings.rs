@@ -3,7 +3,7 @@
 //! invites) and, when one is chosen, a channel.
 
 use chat_api::files::Purpose;
-use chat_model::{ChannelKind, Id, Invite, Role, Status};
+use chat_model::{ChannelKind, Id, Invite, Status};
 use icons_lucide::{LAPTOP, LOG_OUT, SHIELD_CHECK, TRASH_2, X};
 use idea_ui::{
     tone, typography_kind, variant, Alert, AvatarSize, Button, Divider, Field, Icon, IdeaThemeRef, Modal, SegmentOption,
@@ -149,7 +149,7 @@ pub fn SettingsModal(#[prop(static, default = Settings::Profile)] start: Setting
         Settings::Channel(c) => s.peek(|st| st.channels.get(&c).and_then(|c| c.space)),
         _ => ui.place.peek().space(),
     };
-    let admin = space.is_some_and(|sp| s.peek(|st| st.my_role(sp)).is_some_and(chat_model::perms::can_manage_space));
+    let admin = space.is_some_and(|sp| s.manages_space(sp));
     let space_name = space.and_then(|sp| s.peek(|st| st.spaces.get(&sp).map(|s| s.name.clone()))).unwrap_or_default();
     let channel = match start {
         Settings::Channel(c) => Some(c),
@@ -451,38 +451,49 @@ fn SpaceMembers(#[prop(static)] space: Id) -> Element {
         let s = s.clone();
         memo(move || {
             s.read(|st| {
-                let mut v: Vec<(Id, Role)> = st.spaces.get(&space).map(|sp| sp.members.iter().map(|(u, m)| (*u, m.role)).collect()).unwrap_or_default();
-                v.sort_by_cached_key(|(u, r)| (std::cmp::Reverse(*r), st.display_name(*u).to_lowercase()));
+                let mut v: Vec<(Id, Id, bool)> = st.spaces.get(&space).map(|sp| sp.members.iter().map(|(u, m)| (*u, m.roles.first().copied().unwrap_or(Id::nil()), *u == sp.owner)).collect()).unwrap_or_default();
+                v.sort_by_cached_key(|(u, _, owned)| (!owned, st.display_name(*u).to_lowercase()));
                 v
             })
         })
     };
-    let mine = s.peek(|st| st.my_role(space)).unwrap_or_default();
     ui! {
         view(style = crate::bits::Col()) {
             Title(text = "Members".to_string())
-            for (user, role) in members, key = user.to_string() {
-                MemberLine(space = space, user = user, role = role, mine = mine)
+            // The line shows the member's first role name read-only; the old
+            // Member/Admin picker has no named-role equivalent for renaming or
+            // per-role permission editing, which a later task will add.
+            for (user, role, owned) in members, key = user.to_string() {
+                MemberLine(space = space, user = user, role = role, owned = owned)
             }
         }
     }
 }
 
 #[component]
-fn MemberLine(#[prop(static)] space: Id, #[prop(static)] user: Id, #[prop(static, default = Role::Member)] role: Role, #[prop(static, default = Role::Member)] mine: Role) -> Element {
+fn MemberLine(#[prop(static)] space: Id, #[prop(static)] user: Id, #[prop(static, default = Id::nil())] role: Id, #[prop(static)] owned: bool) -> Element {
     let s = store();
     let name = s.peek(|st| st.display_name(user));
-    let value = signal(match role {
-        Role::Owner => "owner",
-        Role::Admin => "admin",
-        Role::Member => "member",
-    }.to_string());
-    let can_grant = chat_model::perms::can_grant(mine, role, Role::Admin) || chat_model::perms::can_grant(mine, role, Role::Member);
-    let can_remove = chat_model::perms::can_moderate(mine, role);
+    let label = s.peek(|st|
+        if owned {
+            "Owner".to_string()
+        } else {
+            st.spaces.get(&space).and_then(|sp| sp.roles.get(&role)).map(|r| r.name.clone()).unwrap_or_else(|| "Member".to_string())
+        }
+    );
+    let grants = s.peek(|st| {
+        let Some(sp) = st.spaces.get(&space) else { return Vec::<SelectOption>::new() };
+        let Some(me) = st.me_id() else { return Vec::<SelectOption>::new() };
+        vec![SelectOption::new(Id::nil().to_string(), "Member".to_string())].into_iter()
+            .chain(sp.roles.values().filter(|r| chat_model::perms::can_grant(sp, me, user, r.id)).map(|r| SelectOption::new(r.id.to_string(), r.name.clone())))
+            .collect()
+    });
+    let can_remove = s.peek(|st| st.spaces.get(&space).is_some_and(|sp| chat_model::perms::can_moderate(sp, st.me_id().unwrap_or_default(), user)));
+    let value = signal(role.to_string());
     let on_role = cb1(move |v: String| {
-        value.set(v.clone());
-        let r = if v == "admin" { Role::Admin } else { Role::Member };
-        runtime_core::spawn_then(chat_api::spaces::set_role(space, user, r), |r| {
+        let to = v.parse::<Id>().ok().filter(|r| *r != Id::nil()).map(|r| vec![r]).unwrap_or_default();
+        value.set(v);
+        runtime_core::spawn_then(chat_api::spaces::set_roles(space, user, to), |r| {
             if let Err(e) = r {
                 idea_ui::push_toast(chat_api::describe(&e), tone::Danger);
             }
@@ -493,15 +504,16 @@ fn MemberLine(#[prop(static)] space: Id, #[prop(static)] user: Id, #[prop(static
             idea_ui::push_toast(chat_api::describe(&e), tone::Danger);
         }
     }));
+    let can_grant = grants.len() > 1;
     ui! {
         view(style = ListRow()) {
             PersonAvatar(user = user, size = AvatarSize::Sm)
             view(style = RowLabel()) {
                 Typography(content = name.clone(), weight = Some(FontWeight::Medium), lines = Some(1))
-                Typography(content = role.label().to_string(), kind = typography_kind::Caption, muted = true)
+                Typography(content = label, kind = typography_kind::Caption, muted = true)
             }
             if can_grant {
-                Select(value = value, on_change = on_role, options = vec![SelectOption::new("member", "Member".to_string()), SelectOption::new("admin", "Admin".to_string())], size = idea_ui::SelectSize::Sm)
+                Select(value = value, on_change = on_role.clone(), options = grants.clone(), size = idea_ui::SelectSize::Sm)
             }
             if can_remove {
                 Action(icon = X, label = format!("Remove {name}"), tone = tone::Danger, on_click = remove.clone())
@@ -567,23 +579,6 @@ fn SpaceChannels(#[prop(static)] space: Id, #[prop(static, default = signal(Sett
     }
 }
 
-fn role_id(r: Role) -> String {
-    match r {
-        Role::Owner => "owner",
-        Role::Admin => "admin",
-        Role::Member => "member",
-    }
-    .to_string()
-}
-
-fn role_from(id: &str) -> Role {
-    match id {
-        "owner" => Role::Owner,
-        "admin" => Role::Admin,
-        _ => Role::Member,
-    }
-}
-
 #[component]
 fn ChannelPage(#[prop(static)] channel: Id) -> Element {
     let s = store();
@@ -592,8 +587,8 @@ fn ChannelPage(#[prop(static)] channel: Id) -> Element {
     let space = c.space;
     let name = signal(c.name.clone());
     let topic = signal(c.topic.clone());
-    let view_role = signal(role_id(c.view));
-    let post_role = signal(role_id(c.post));
+    let view_role = signal(c.view.to_string());
+    let post_role = signal(c.post.to_string());
     let category = signal(c.category.map(|k| k.to_string()).unwrap_or_else(|| "none".to_string()));
     let categories: Vec<SelectOption> = std::iter::once(SelectOption::new("none", "No category".to_string()))
         .chain(
@@ -610,7 +605,7 @@ fn ChannelPage(#[prop(static)] channel: Id) -> Element {
         saved.set(false);
         let cat = category.peek().parse::<Id>().ok();
         form.submit(
-            chat_api::channels::update_channel(channel, name.peek(), topic.peek(), cat, role_from(&view_role.peek()), role_from(&post_role.peek())),
+            chat_api::channels::update_channel(channel, name.peek(), topic.peek(), cat, view_role.peek().parse::<u64>().unwrap_or(0), post_role.peek().parse::<u64>().unwrap_or(0)),
             move |_| saved.set(true),
         );
     });
@@ -623,7 +618,16 @@ fn ChannelPage(#[prop(static)] channel: Id) -> Element {
         }
         Err(e) => crate::forms::toast(&e),
     }));
-    let roles = || vec![SelectOption::new("member", "Everyone".to_string()), SelectOption::new("admin", "Admins".to_string()), SelectOption::new("owner", "Only the owner".to_string())];
+    // The old "everyone/admins/owner" floors map onto permission masks, not
+    // role ids: each option offers a role's permission set as WHO CAN SEE/POST.
+    // Two roles with the same set collapse into one option; editing roles
+    // themselves is a later task.
+    let masks: std::collections::BTreeMap<u64, String> = space
+        .and_then(|sp| s.peek(|st| st.spaces.get(&sp).map(|sp| sp.roles.values().map(|r| (r.permissions, r.name.clone())).collect())))
+        .unwrap_or_default();
+    let roles: Vec<SelectOption> = std::iter::once(SelectOption::new("0", "Everyone".to_string()))
+        .chain(masks.iter().map(|(mask, name)| SelectOption::new(mask.to_string(), name.clone())))
+        .collect();
     ui! {
         view(style = crate::bits::Col()) {
             Title(text = format!("#{}", c.name))
@@ -638,9 +642,9 @@ fn ChannelPage(#[prop(static)] channel: Id) -> Element {
             Typography(content = "CATEGORY".to_string(), kind = typography_kind::Overline, muted = true)
             Select(value = category, on_change = cb1(move |v: String| category.set(v)), options = categories)
             Typography(content = "WHO CAN SEE IT".to_string(), kind = typography_kind::Overline, muted = true)
-            Select(value = view_role, on_change = cb1(move |v: String| view_role.set(v)), options = roles())
+            Select(value = view_role, on_change = cb1(move |v: String| view_role.set(v)), options = roles.clone())
             Typography(content = "WHO CAN POST".to_string(), kind = typography_kind::Overline, muted = true)
-            Select(value = post_role, on_change = cb1(move |v: String| post_role.set(v)), options = roles())
+            Select(value = post_role, on_change = cb1(move |v: String| post_role.set(v)), options = roles.clone())
             view(style = Buttons()) {
                 Button(label = "Delete channel".to_string(), variant = variant::Soft, tone = tone::Danger, on_click = delete)
                 Button(label = "Save".to_string(), on_click = save, loading = rx!(form.busy.get()))

@@ -86,8 +86,12 @@ pub enum Permission {
     // ---- space ----
     /// Create, rename and delete roles.
     ManageRoles,
-    /// Kick, ban and time out members.
+    /// Remove members from the space.
     ManageMembers,
+    /// Ban members so they cannot rejoin until unbanned.
+    BanMembers,
+    /// Time members out so they cannot send or speak until it expires.
+    TimeoutMembers,
     /// Change the space's own settings.
     ManageSpaceSettings,
     /// Every permission. A role with this bit is an admin whatever else it
@@ -121,6 +125,8 @@ impl Permission {
             Permission::ManageRoles => 19,
             Permission::ManageMembers => 20,
             Permission::ManageSpaceSettings => 21,
+            Permission::BanMembers => 22,
+            Permission::TimeoutMembers => 23,
             Permission::IsAdmin => 63,
         }
     }
@@ -128,7 +134,7 @@ impl Permission {
 
 /// Every permission: what the owner holds, and what a role tagged admin
 /// expands to.
-pub const ALL: u64 = (1u64 << 63) | ((1u64 << 22) - 1);
+pub const ALL: u64 = (1u64 << 63) | ((1u64 << 24) - 1);
 
 /// The admin tag alone: what a channel asks of its admins, and what a
 /// permission set must cover to count as an admin (for the roster).
@@ -136,6 +142,22 @@ pub const ADMIN: u64 = Permission::IsAdmin.bit();
 
 /// The empty mask: what a channel asks of everyone in the space.
 pub const EVERYONE: u64 = 0;
+
+/// The default everyone baseline a new space seeds: see, post, own-message
+/// edits and deletes, react, attach, embed, and the self-service voice acts.
+/// It stops where the acts on other people and on the space begin.
+pub const DEFAULT_EVERYONE: u64 =
+    Permission::ViewChannel.bit()
+    | Permission::SendMessage.bit()
+    | Permission::EditOwnMessage.bit()
+    | Permission::DeleteOwnMessage.bit()
+    | Permission::AddReaction.bit()
+    | Permission::AttachFile.bit()
+    | Permission::EmbedLink.bit()
+    | Permission::VoiceConnect.bit()
+    | Permission::VoiceSpeak.bit()
+    | Permission::VoiceVideo.bit()
+    | Permission::VoiceShareScreen.bit();
 
 /// Expand a permission set: a set carrying the admin tag carries all.
 pub fn expand(permissions: u64) -> u64 {
@@ -167,16 +189,16 @@ pub fn role_permissions(space: &Space, role: Id) -> u64 {
     space.roles.get(&role).map(|r| r.permissions).unwrap_or(0)
 }
 
-/// What `user` may do in `space`: the union of the permissions of the roles
-/// they hold. The owner holds everything whatever roles they carry, so no
-/// role can take their control away. `None` for someone who is not in the
-/// space.
+/// What `user` may do in `space`: the space's baseline, then the union of the
+/// permissions of the roles they hold. The owner holds everything whatever
+/// roles they carry, so no role can take their control away. `None` for
+/// someone who is not in the space.
 pub fn effective(space: &Space, user: Id) -> Option<u64> {
     let Some(member) = space.members.get(&user) else { return None };
     if user == space.owner {
         return Some(ALL);
     }
-    Some(member.roles.iter().fold(EVERYONE, |acc, role| union(acc, role_permissions(space, *role))))
+    Some(member.roles.iter().fold(space.everyone, |acc, role| union(acc, role_permissions(space, *role))))
 }
 
 /// Whether `user` may do `what` in `space`.
@@ -192,7 +214,7 @@ pub fn channel_access(user: Id, channel: &Channel, space: Option<&Space>) -> Acc
     if channel.kind.is_private() {
         return if channel.members.contains(&user) { Access::Full } else { Access::None };
     }
-    let Some(permissions) = space.and_then(|s| effective(s, user)) else {
+    let Some(permissions) = space.and_then(|s| at_channel(user, channel, s)) else {
         return Access::None;
     };
     if !covers(permissions, channel.view) {
@@ -204,14 +226,58 @@ pub fn channel_access(user: Id, channel: &Channel, space: Option<&Space>) -> Acc
     }
 }
 
+/// The set of what `user` may do inside `channel` of `space`: their space
+/// base, with each of their roles' channel overwrites applied — the allow
+/// sets widen, the deny sets cut afterwards. The owner and anyone holding
+/// the admin tag ignore the overwrites: their reach is the space's whole
+/// power, and a channel cannot demote them.
+pub fn at_channel(user: Id, channel: &Channel, space: &Space) -> Option<u64> {
+    let Some(member) = space.members.get(&user) else { return None };
+    let base = effective(space, user).unwrap_or(EVERYONE);
+    // The owner and an admin ignore the overwrites: an effective set
+    // carrying the admin tag is ALL, so the test below catches both.
+    if user == space.owner || covers(base, ADMIN) {
+        return Some(base);
+    }
+    let allow = member.roles.iter().fold(EVERYONE, |acc, role| acc | channel.overwrites.get(&role).map(|o| o.allow).unwrap_or(0));
+    let deny = member.roles.iter().fold(EVERYONE, |acc, role| acc | channel.overwrites.get(&role).map(|o| o.deny).unwrap_or(0));
+    Some((base | allow) & !deny)
+}
+
+/// The rank a member acts at: the position of their most senior role — a
+/// lower `position` is more senior — or `None` for a member holding no roles,
+/// who sits at the bottom of the ladder.
+pub fn top_position(space: &Space, user: Id) -> Option<i32> {
+    space.members.get(&user).and_then(|m|
+        m.roles
+            .iter()
+            .filter_map(|r| space.roles.get(r).map(|role| role.position))
+            .min())
+}
+
 /// Removing someone from a space: the [`Permission::ManageMembers`] bit buys
-/// it (the owner always may). The target must be in the space, and the owner
-/// is never a target — ownership is transferred, not revoked, so no role can
-/// demote them.
+/// it (the owner always may), and only at their own rank or below: a member
+/// can only reach those under their top role. The target must be in the space,
+/// and the owner is never a target — ownership is transferred, not revoked, so
+/// no role can demote them.
 pub fn can_moderate(space: &Space, actor: Id, target: Id) -> bool {
     space.members.contains_key(&target)
         && target != space.owner
-        && (actor == space.owner || can(space, actor, Permission::ManageMembers))
+        && (actor == space.owner
+            || can(space, actor, Permission::ManageMembers) && reaches(space, actor, target))
+}
+
+/// Whether `actor` sits at or above `target`'s rank, so they may touch their
+/// subordinate: the owner reaches everyone, and a member with no roles sits
+/// below every role, reaching only members with no roles.
+pub fn reaches(space: &Space, actor: Id, target: Id) -> bool {
+    actor == space.owner
+        || match (top_position(space, actor), top_position(space, target)) {
+            (Some(a), Some(t)) => t >= a,
+            (Some(_), None) => true,
+            (None, None) => true,
+            (None, Some(_)) => false,
+        }
 }
 
 /// Giving someone a role: [`Permission::ManageRoles`] buys it (the owner
@@ -230,21 +296,134 @@ pub fn can_grant(space: &Space, actor: Id, target: Id, to: Id) -> bool {
 /// actor does not have.
 pub fn can_set_roles(space: &Space, actor: Id, target: Id, roles: &[Id]) -> bool {
     can_moderate(space, actor, target)
-        && can(space, actor, Permission::ManageRoles)
-        && roles.iter().all(|to| covers(effective(space, actor).unwrap_or(0), role_permissions(space, *to)))
+        && roles.iter().all(|to| can_grant(space, actor, target, *to))
 }
 
-/// Creating or rewriting a role: [`Permission::ManageRoles`] buys it (the
-/// owner always may), and the role cannot carry power the actor does not
-/// hold — an admin tag in the set buys it only for an admin.
+/// Creating a role: [`Permission::ManageRoles`] buys it (the owner always
+/// may), and the role cannot carry power the actor does not hold. A new role
+/// sits at the bottom of the ladder, so hierarchy never blocks creating one.
 pub fn can_author_role(space: &Space, actor: Id, permissions: PermissionSet) -> bool {
     can(space, actor, Permission::ManageRoles)
         && covers(effective(space, actor).unwrap_or(0), expand(permissions))
 }
 
+/// Whether `actor` may touch a role at `position`: the owner is exempt, and a
+/// member reaches only roles at or below the rank of their top role.
+pub fn reaches_role(space: &Space, actor: Id, position: i32) -> bool {
+    actor == space.owner
+        || top_position(space, actor).is_some_and(|top| position >= top)
+}
+
+/// Editing or deleting the role `role`: [`Permission::ManageRoles`] buys it
+/// (the owner always may), and the role sits at or below the actor's own rank.
+pub fn can_edit_role(space: &Space, actor: Id, role: Id) -> bool {
+    can(space, actor, Permission::ManageRoles)
+        && reaches_role(space, actor, space.roles.get(&role).map(|r| r.position).unwrap_or(0))
+}
+
+/// Banning someone: their space role's [`Permission::BanMembers`] bit buys
+/// it (the owner always may) and only at their own rank or below, like any
+/// other act on a member. Never the owner — they are moved by transfer.
+pub fn can_ban(space: &Space, actor: Id, target: Id) -> bool {
+    can_moderate(space, actor, target)
+        && can(space, actor, Permission::BanMembers)
+}
+
+/// Timing someone out: their space role's [`Permission::TimeoutMembers`] bit
+/// buys it (the owner always may), at their own rank or below. The target
+/// must be a member, and never the owner.
+pub fn can_timeout(space: &Space, actor: Id, target: Id) -> bool {
+    space.members.contains_key(&target)
+        && target != space.owner
+        && (actor == space.owner
+            || (can(space, actor, Permission::TimeoutMembers) && reaches(space, actor, target)))
+}
+
 /// Whether `user` may manage a space's settings through an optional space.
 pub fn manages(space: &Option<Space>, user: Id) -> bool {
     space.as_ref().is_some_and(|s| can(s, user, Permission::ManageSpaceSettings))
+}
+
+/// Whether `user` may set who sees and posts in a channel, through an
+/// optional space: [`Permission::ManageChannelRoles`] buys it.
+pub fn manages_channel(space: &Option<Space>, user: Id) -> bool {
+    space.as_ref().is_some_and(|s| can(s, user, Permission::ManageChannelRoles))
+}
+
+// ---- per-act rules, one copy each: the server decides, the client hides ----
+
+/// Whether `user` may do `what` in `space`, ignoring channels. Space-wide
+/// acts (managing settings, invites, transfers) use this; acts taken at a
+/// channel use [`can_at`] so the channel's overwrites apply.
+pub fn can_act(space: Option<&Space>, user: Id, what: Permission) -> bool {
+    space.is_none_or(|s| can(s, user, what))
+}
+
+/// Whether `user` may do `what` at `channel`: over the set the channel's
+/// per-role overwrites adjust, so a role can be widened or cut here without
+/// moving anywhere else in the space. Outside a space — a direct or group
+/// conversation — there are no roles to consult, and the act is open to
+/// anyone the conversation itself admits.
+pub fn can_at(channel: &Channel, space: Option<&Space>, user: Id, what: Permission) -> bool {
+    match space {
+        Some(s) => at_channel(user, channel, s).is_some_and(|permissions| has(permissions, what)),
+        None => true,
+    }
+}
+
+/// Reacting to a message at a channel: [`Permission::AddReaction`] buys it.
+pub fn can_react(channel: &Channel, space: Option<&Space>, user: Id) -> bool {
+    can_at(channel, space, user, Permission::AddReaction)
+}
+
+/// Attaching a file to a message: [`Permission::AttachFile`] buys it. The
+/// upload itself is not the act — a file is only attached when the message
+/// that claims it is posted — so the server checks where the message lands.
+pub fn can_attach(channel: &Channel, space: Option<&Space>, user: Id) -> bool {
+    can_at(channel, space, user, Permission::AttachFile)
+}
+
+/// Posting a link a reader expands: [`Permission::EmbedLink`] buys it. The
+/// server sees the act because it reads the message bodies it is handed
+/// (`send` and `edit` resolve mentions in the cleartext they were given), so
+/// this is checked where the act is, not guessed from encrypted content.
+pub fn can_embed(channel: &Channel, space: Option<&Space>, user: Id) -> bool {
+    can_at(channel, space, user, Permission::EmbedLink)
+}
+
+/// Joining a channel's call: [`Permission::VoiceConnect`] buys it.
+pub fn can_connect(channel: &Channel, space: Option<&Space>, user: Id) -> bool {
+    can_at(channel, space, user, Permission::VoiceConnect)
+}
+
+/// Unmuting their microphone in a call: [`Permission::VoiceSpeak`] buys it.
+pub fn can_speak(channel: &Channel, space: Option<&Space>, user: Id) -> bool {
+    can_at(channel, space, user, Permission::VoiceSpeak)
+}
+
+/// Using a camera in a call: [`Permission::VoiceVideo`] buys it.
+pub fn can_video(channel: &Channel, space: Option<&Space>, user: Id) -> bool {
+    can_at(channel, space, user, Permission::VoiceVideo)
+}
+
+/// Sharing a screen in a call: [`Permission::VoiceShareScreen`] buys it.
+pub fn can_share(channel: &Channel, space: Option<&Space>, user: Id) -> bool {
+    can_at(channel, space, user, Permission::VoiceShareScreen)
+}
+
+/// [`Permission::VoiceForceMute`] and [`Permission::VoiceMoveMember`] act on
+/// other people's calls, and this stack has no verb that does: muting in
+/// `update_call` is self-service, and the relay only takes a person out when
+/// their own connection drops. There is no server site to check the bits
+/// against, so no check is added — a gate over a control that does not exist
+/// would be a fake one. The bits stay defined for the day those controls
+/// arrive, where they will gate through `can`.
+
+/// Making an invite: [`Permission::ManageInvites`] buys it (the owner always
+/// may, holding everything). Revoking one is the same act. Invites belong to
+/// the space, not a channel, so no overwrites apply.
+pub fn can_invite(space: &Space, user: Id) -> bool {
+    can(space, user, Permission::ManageInvites)
 }
 
 /// Whether `actor` may hand the space to `target`: the owner only, to a
@@ -254,24 +433,26 @@ pub fn can_transfer(space: &Space, actor: Id, target: Id) -> bool {
     actor == space.owner && target != space.owner && space.members.contains_key(&target)
 }
 
-/// Deleting a message: its author always (a role's
-/// [`Permission::DeleteOwnMessage`] governs whether they may), and anyone
-/// whose set covers [`Permission::DeleteOthersMessage`] for someone else's.
-pub fn can_delete_message(space: Option<&Space>, user: Id, author: Id) -> bool {
-    user == author
+/// Deleting a message: its author, where the channel's set for
+/// [`Permission::DeleteOwnMessage`] allows it (in a conversation, outside any
+/// space, there are no roles to consult, so the author may), and anyone whose
+/// space set covers [`Permission::DeleteOthersMessage`] for someone else's.
+pub fn can_delete_message(channel: &Channel, space: Option<&Space>, user: Id, author: Id) -> bool {
+    (user == author && can_at(channel, space, user, Permission::DeleteOwnMessage))
         || space.is_some_and(|s| can(s, user, Permission::DeleteOthersMessage))
 }
 
-/// Editing a message: only its author, and only with the permission.
-pub fn can_edit_message(space: Option<&Space>, user: Id, author: Id) -> bool {
-    user == author
-        && space.is_some_and(|s| can(s, user, Permission::EditOwnMessage))
+/// Editing a message: only its author, and only with the
+/// [`Permission::EditOwnMessage`] permission at the channel — outside a space
+/// the act is open to the author.
+pub fn can_edit_message(channel: &Channel, space: Option<&Space>, user: Id, author: Id) -> bool {
+    user == author && can_at(channel, space, user, Permission::EditOwnMessage)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Channel, ChannelKind, Member, Role, Space};
+    use crate::{Channel, ChannelKind, Member, Overwrite, Role, Space};
     use std::collections::BTreeMap;
 
     fn id(n: u128) -> Id {
@@ -290,6 +471,7 @@ mod tests {
             name: "s".into(),
             icon: None,
             owner: id(1),
+            everyone: 0,
             members: members
                 .iter()
                 .map(|(u, _, rs)| (id(*u), Member { roles: rs.iter().map(|&n| id(n)).collect(), joined_at: 0 }))
@@ -300,6 +482,14 @@ mod tests {
                 .collect::<BTreeMap<_, _>>(),
             categories: vec![],
             created_at: 0,
+        }
+    }
+
+    /// A channel with one role's allow/deny pair set on it.
+    fn with_overwrites(c: Channel, role: Id, allow: u64, deny: u64) -> Channel {
+        Channel {
+            overwrites: [(role, Overwrite { allow, deny })].into_iter().collect(),
+            ..c
         }
     }
 
@@ -318,11 +508,38 @@ mod tests {
             post,
             members: vec![],
             archived: false,
+            overwrites: BTreeMap::new(),
             last_message: None,
             message_count: 0,
             created_by: id(1),
             created_at: 0,
         }
+    }
+
+    #[test]
+    fn a_channel_overwrite_lets_one_role_post_where_the_post_mask_forbids() {
+        let s = space(&[(8, Permission::ViewChannel.bit())], &[(1, true, vec![]), (2, false, vec![8])]);
+        let mut c = channel(ChannelKind::Text, EVERYONE, Permission::SendMessage.bit());
+        c = with_overwrites(c, id(8), Permission::SendMessage.bit() | Permission::AddReaction.bit(), EVERYONE);
+        assert_eq!(channel_access(id(2), &c, Some(&s)), Access::Full);
+        assert!(can_react(&c, Some(&s), id(2)), "and the widened set reaches the act checks");
+    }
+
+    #[test]
+    fn a_channel_overwrite_cuts_a_permission_the_role_holds_wide() {
+        let s = space(&[(7, POSTING | Permission::EmbedLink.bit())], &[(1, true, vec![]), (2, false, vec![7])]);
+        let mut c = channel(ChannelKind::Text, EVERYONE, Permission::SendMessage.bit());
+        c = with_overwrites(c, id(7), EVERYONE, Permission::EmbedLink.bit());
+        assert!(can(&s, id(2), Permission::EmbedLink), "space-wide the role holds the bit");
+        assert!(!can_embed(&c, Some(&s), id(2)), "but not at this channel");
+    }
+
+    #[test]
+    fn the_owner_shrugs_the_overwrites_off() {
+        let s = space(&[(7, POSTING)], &[(1, true, vec![7])]);
+        let mut c = channel(ChannelKind::Text, EVERYONE, Permission::SendMessage.bit());
+        c = with_overwrites(c, id(7), EVERYONE, Permission::SendMessage.bit());
+        assert_eq!(channel_access(id(1), &c, Some(&s)), Access::Full, "even a deny on their own role");
     }
 
     #[test]
@@ -371,6 +588,44 @@ mod tests {
         let c = channel(ChannelKind::Text, Permission::ViewChannel.bit(), Permission::SendMessage.bit());
         assert_eq!(channel_access(id(2), &c, Some(&s)), Access::ReadOnly);
         assert_eq!(channel_access(id(3), &c, Some(&s)), Access::Full);
+    }
+
+    #[test]
+    fn the_baseline_reaches_a_member_with_no_roles() {
+        let mut s = space(&[], &[(2, false, vec![])]);
+        s.everyone = DEFAULT_EVERYONE;
+        assert!(
+            has(effective(&s, id(2)).unwrap_or(EVERYONE), Permission::ViewChannel),
+            "the space's baseline holds for a member with no roles",
+        );
+        assert!(
+            !has(effective(&s, id(2)).unwrap_or(EVERYONE), Permission::ManageMembers),
+            "but the baseline stops where the acts on others begin",
+        );
+    }
+
+    #[test]
+    fn a_space_can_raise_its_baseline() {
+        let base = space(&[], &[(2, false, vec![])]);
+        let mut raised = space(&[], &[(2, false, vec![])]);
+        raised.everyone = DEFAULT_EVERYONE | Permission::ManageMembers.bit();
+        assert!(!has(effective(&base, id(2)).unwrap_or(EVERYONE), Permission::ManageMembers));
+        assert!(has(effective(&raised, id(2)).unwrap_or(EVERYONE), Permission::ManageMembers));
+    }
+
+    #[test]
+    fn the_new_bits_stay_inside_all() {
+        assert_eq!(
+            Permission::BanMembers.bit() | Permission::TimeoutMembers.bit() | Permission::IsAdmin.bit() | (1u64 << 22) - 1,
+            ALL,
+            "the ban and timeout bits sit in the space and ALL covers exactly the defined bits",
+        );
+        for p in [Permission::BanMembers, Permission::TimeoutMembers] {
+            assert!((ALL & p.bit()) == p.bit(), "ALL holds every defined bit");
+        }
+        for unused in 24..63 {
+            assert_eq!(ALL & (1u64 << unused), 0, "no invented bit slipped into ALL");
+        }
     }
 
     #[test]
@@ -427,9 +682,19 @@ mod tests {
     #[test]
     fn deleting_another_s_message_needs_the_permission() {
         let s = space(&[(7, ADMIN)], &[(1, true, vec![]), (2, false, vec![7])]);
-        assert!(can_delete_message(Some(&s), id(1), id(2)), "the admin bit buys delete-others");
-        assert!(!can_delete_message(Some(&s), id(9), id(2)), "a stranger deletes nothing");
-        assert!(can_delete_message(None, id(2), id(2)), "an author deletes their own even with no space");
+        let c = channel(ChannelKind::Text, EVERYONE, EVERYONE);
+        assert!(
+            can_delete_message(&c, Some(&s), id(1), id(2)),
+            "the admin bit buys delete-others",
+        );
+        assert!(
+            !can_delete_message(&c, Some(&s), id(9), id(2)),
+            "a stranger deletes nothing",
+        );
+        assert!(
+            can_delete_message(&c, None, id(2), id(2)),
+            "an author deletes their own even with no space",
+        );
     }
 
     #[test]

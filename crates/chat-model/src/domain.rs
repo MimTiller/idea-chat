@@ -123,6 +123,10 @@ pub struct Space {
     pub members: BTreeMap<Id, Member>,
     /// The space's roles by id; a member's `roles` point into this.
     pub roles: BTreeMap<Id, Role>,
+    /// The space's baseline: what every member holds whatever their roles say.
+    /// Seeded with [`DEFAULT_EVERYONE`] when the space is made, kept per space
+    /// so an owner can change it.
+    pub everyone: PermissionSet,
     pub categories: Vec<Category>,
     pub created_at: Millis,
 }
@@ -197,12 +201,24 @@ pub struct Channel {
     pub members: Vec<Id>,
     /// A thread nobody can post in any more; it leaves the navigation.
     pub archived: bool,
+    /// Per-role allow and deny sets on this channel, keyed by role: each
+    /// widens and then narrows what a holder of that role may do here. The
+    /// owner and anyone holding IsAdmin ignore them.
+    pub overwrites: BTreeMap<Id, Overwrite>,
     /// The newest message, if any — what unread is measured against.
     pub last_message: Option<Id>,
     /// How many messages it holds. Shown for threads.
     pub message_count: u32,
     pub created_by: Id,
     pub created_at: Millis,
+}
+
+/// What one role switches on a channel: `allow` grants on top of the base
+/// set, `deny` takes away afterwards.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Overwrite {
+    pub allow: PermissionSet,
+    pub deny: PermissionSet,
 }
 
 /// How far someone has read in a channel.

@@ -371,6 +371,59 @@ async fn the_first_into_a_call_keys_it_and_the_last_out_ends_it() {
 }
 
 #[tokio::test]
+async fn the_roles_migration_backfills_the_old_ranks() {
+    let Ok(base) = std::env::var("CHAT_TEST_DATABASE_URL") else {
+        eprintln!("CHAT_TEST_DATABASE_URL not set; skipping");
+        return;
+    };
+    // A database seeded with the old schema: 0001 on its own, data in the
+    // old shape (an admin-ranked member and a channel locked to admins),
+    // then the roles migration. The backfill is what carries that data
+    // across; without it the admin loses power and the lock opens.
+    let name = format!("chat_test_{}", uuid::Uuid::now_v7().simple());
+    {
+        let mut admin = sqlx::PgConnection::connect(&base).await.expect("connect to the test server");
+        sqlx::query(&format!("CREATE DATABASE {name}")).execute(&mut admin).await.unwrap();
+    }
+    let url = match base.rsplit_once('/') {
+        Some((server, _)) => format!("{server}/{name}"),
+        None => panic!("CHAT_TEST_DATABASE_URL must name a database"),
+    };
+    let migrations = sqlx::migrate!("./migrations");
+    let sql_of = |version| migrations.iter()
+        .find(|m| m.version == version)
+        .unwrap()
+        .sql
+        .to_string();
+    let mut conn = sqlx::PgConnection::connect(&url).await.expect("connect");
+    sqlx::raw_sql(&sql_of(1)).execute(&mut conn).await.unwrap();
+    let seed = "INSERT INTO users (id, email, password_hash, handle, display_name) VALUES ('00000000-0000-0000-0000-000000000001', 'a@x', 'x', 'a', 'A'), ('00000000-0000-0000-0000-000000000002', 'b@x', 'x', 'b', 'B'); INSERT INTO spaces (id, name, owner_id) VALUES ('00000000-0000-0000-0000-000000000009', 'sp', '00000000-0000-0000-0000-000000000001'); INSERT INTO space_members (space_id, user_id, role) VALUES ('00000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000001', 'owner'), ('00000000-0000-0000-0000-000000000009', '00000000-0000-0000-0000-000000000002', 'admin'); INSERT INTO channels (id, kind, space_id, name, created_by, view_role, post_role) VALUES ('00000000-0000-0000-0000-0000000000a0', 'text', '00000000-0000-0000-0000-000000000009', 'ann', '00000000-0000-0000-0000-000000000001', 'admin', 'admin'), ('00000000-0000-0000-0000-0000000000a1', 'text', '00000000-0000-0000-0000-000000000009', 'open', '00000000-0000-0000-0000-000000000001', 'member', 'member');";
+    sqlx::raw_sql(seed).execute(&mut conn).await.unwrap();
+    sqlx::raw_sql(&sql_of(2)).execute(&mut conn).await.unwrap();
+
+    let admins: i64 = sqlx::query_scalar("SELECT count(*) FROM space_roles WHERE name = 'Admin'")
+        .fetch_one(&mut conn)
+        .await.unwrap();
+    assert_eq!(admins, 1i64, "the space with old admins gets an Admin role");
+    let held: i64 = sqlx::query_scalar("SELECT count(*) FROM space_members WHERE role_ids <> '{}'")
+        .fetch_one(&mut conn)
+        .await.unwrap();
+    assert_eq!(held, 1i64, "exactly the old admin holds the backfilled role");
+    let locked: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM channels WHERE name = 'ann' AND view_mask <> 0 AND post_mask <> 0",
+    )
+        .fetch_one(&mut conn)
+        .await.unwrap();
+    assert_eq!(locked, 1i64, "the admin-locked channel keeps its lock as masks");
+    let open: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM channels WHERE name = 'open' AND view_mask = 0 AND post_mask = 0",
+    )
+        .fetch_one(&mut conn)
+        .await.unwrap();
+    assert_eq!(open, 1i64, "the open channel stays open");
+}
+
+#[tokio::test]
 async fn the_snapshot_holds_spaces_conversations_and_people() {
     let Some(db) = db().await else { return };
     let ana = account(&db, "ana").await;
