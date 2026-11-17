@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::perms::{self, Access, Permission};
 use crate::{
     Category, Channel, ChannelKind, Device, Id, KeyRequest, Me, Member, Message, Millis, Presence, ReadState,
-    Relation, Ring, Role, SealedKey, Space, Status, User, VoiceState,
+    Relation, Ring, Role, SealedKey, Space, PermissionSet, Status, User, VoiceState,
 };
 
 /// Everything one viewer's client draws from, apart from message history.
@@ -81,6 +81,9 @@ pub enum Event {
     /// The space's whole role set restated, so every connection can see the
     /// new names and permissions.
     RolesChanged { space: Id, roles: Vec<Role> },
+    /// The space's baseline of what every member holds restated, so
+    /// connections can re-derive what they may see.
+    BaselineChanged { space: Id, everyone: PermissionSet },
     MemberLeft { space: Id, user: Id },
     CategoriesChanged { space: Id, categories: Vec<Category> },
     SpaceOrder { spaces: Vec<Id> },
@@ -215,6 +218,11 @@ impl State {
             Event::RolesChanged { space, roles } => {
                 if let Some(s) = self.spaces.get_mut(space) {
                     s.roles = roles.iter().map(|r| (r.id, r.clone())).collect();
+                }
+            }
+            Event::BaselineChanged { space, everyone } => {
+                if let Some(s) = self.spaces.get_mut(space) {
+                    s.everyone = *everyone;
                 }
             }
             Event::OwnerChanged { space, owner } => {

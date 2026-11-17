@@ -118,10 +118,17 @@ pub async fn update_channel(
     }
     let name = chat_model::text::channel_name(&name).map_err(invalid("name"))?;
     let topic = chat_model::text::about(&topic).map_err(invalid("topic"))?;
+    let gated = (view, post) != (c.view, c.post);
     let updated = app().db.update_channel(channel, &name, &topic, category, view, post).await.map_err(db)?;
     // Every member sees a channel exists — locked or not — so its settings
     // go to everyone; its messages go only to who may read them.
     app().bus.publish(vec![space_topic(space_id)], Event::ChannelUpserted { channel: updated.clone() }).await;
+    // When the masks move, who may read can change and so can which topic the
+    // channel's own events ride: recompute every member's subscriptions.
+    if gated {
+        let members = app().db.member_ids(space_id).await.unwrap_or_default();
+        crate::srv::resync(&members).await;
+    }
     Ok(updated)
 }
 

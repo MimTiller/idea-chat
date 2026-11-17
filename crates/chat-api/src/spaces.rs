@@ -243,6 +243,9 @@ pub async fn update_role(space: Id, role: Id, name: String, permissions: Permiss
     let name = chat_model::text::name(&name).map_err(invalid("name"))?;
     app().db.update_role(space, role, &name, permissions).await.map_err(db)?;
     body::publish_roles(space).await;
+    // A role's powers moved, so who can see a gated channel may change:
+    // everyone in the space must re-derive their subscriptions.
+    crate::srv::resync(&app().db.member_ids(space).await.unwrap_or_default()).await;
     Ok(())
 }
 
@@ -260,6 +263,9 @@ pub async fn delete_role(space: Id, role: Id, user: Auth<Principal>) -> Answer<(
     }
     app().db.delete_role(space, role).await.map_err(db)?;
     body::publish_roles(space).await;
+    // The role is gone for everyone holding it, so who may see a gated
+    // channel changes again: everyone re-derives their subscriptions.
+    crate::srv::resync(&app().db.member_ids(space).await.unwrap_or_default()).await;
     Ok(())
 }
 
