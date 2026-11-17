@@ -196,6 +196,42 @@ impl Db {
         self.channel(id).await
     }
 
+    /// Restate one role's allow/deny overwrite on a channel: the pair rewrites
+    /// the row, and `(0, 0)` means no overwrite, so it deletes the row.
+    pub async fn set_overwrite(&self, channel: Id, space: Id, role: Id, allow: u64, deny: u64) -> Result<()> {
+        if allow == 0 && deny == 0 {
+            sqlx::query("DELETE FROM channel_overwrites WHERE channel_id = $1 AND role_id = $2")
+                .bind(channel)
+                .bind(role)
+                .execute(&self.pool)
+                .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO channel_overwrites (channel_id, space_id, role_id, allow, deny) \
+                 VALUES ($1, $2, $3, $4, $5) \
+                 ON CONFLICT (channel_id, role_id) DO UPDATE SET allow = $4, deny = $5",
+            )
+                .bind(channel)
+                .bind(space)
+                .bind(role)
+                .bind(allow as i64)
+                .bind(deny as i64)
+                .execute(&self.pool)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Drop one role's overwrite on a channel, whatever it held.
+    pub async fn clear_overwrite(&self, channel: Id, role: Id) -> Result<()> {
+        sqlx::query("DELETE FROM channel_overwrites WHERE channel_id = $1 AND role_id = $2")
+            .bind(channel)
+            .bind(role)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Change a space channel's settings. Every field is set as given.
     pub async fn update_channel(
         &self,
