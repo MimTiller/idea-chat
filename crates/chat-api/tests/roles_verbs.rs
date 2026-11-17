@@ -7,6 +7,8 @@
 use chat_model::{Channel, ChannelKind, Id, Member, Overwrite, Role, Space};
 use chat_model::perms::{
     ALL,
+    Access,
+    channel_access,
     ADMIN,
     DEFAULT_EVERYONE,
     EVERYONE,
@@ -164,7 +166,11 @@ fn updating_a_role_needs_reach_and_the_new_powers_held() {
         &[(2u128, vec![7u128]), (3u128, vec![8u128]), (4u128, vec![])],
         EVERYONE,
     );
-    assert!(can_edit_role(&s, id(3), id(8)), "a member edits their own role");
+    assert!(can_edit_role(&s, id(2), id(8)), "a senior member edits the role below theirs");
+    assert!(
+        !can_edit_role(&s, id(3), id(8)),
+        "nobody edits their own top role: it sits at their own rank, not below it"
+    );
     assert!(
         !can_edit_role(&s, id(3), id(7)),
         "they cannot rewrite the senior role above them"
@@ -187,7 +193,10 @@ fn deleting_a_role_uses_the_same_reach_as_editing_it() {
         EVERYONE,
     );
     assert!(can_edit_role(&s, id(2), id(8)), "their subordinate role comes off");
-    assert!(can_edit_role(&s, id(2), id(7)), "a member edits roles at or below their top");
+    assert!(
+        !can_edit_role(&s, id(2), id(7)),
+        "the role at their own top is not below them, so it is not theirs to delete"
+    );
     assert!(
         !can_edit_role(&s, id(4), id(8)),
         "a plain member deletes nobody's role"
@@ -200,13 +209,17 @@ fn deleting_a_role_uses_the_same_reach_as_editing_it() {
 fn handing_out_roles_needs_the_grant_bit_and_no_smuggled_power() {
     const POWERS: u64 = Permission::ManageRoles.bit() | Permission::ManageMembers.bit();
     let s = space(
-        &[(7u128, POWERS, 0i32)],
+        &[(7u128, POWERS, 0i32), (8u128, Permission::ManageMembers.bit(), 1i32)],
         &[(2u128, vec![7u128]), (4u128, vec![])],
         EVERYONE,
     );
     assert!(
-        can_set_roles(&s, id(2), id(4), &[id(7)]),
-        "the boss hands their own role down"
+        can_set_roles(&s, id(2), id(4), &[id(8)]),
+        "the boss hands a junior role down"
+    );
+    assert!(
+        !can_set_roles(&s, id(2), id(4), &[id(7)]),
+        "a role at the boss's own rank is not below them, so it is not theirs to hand out"
     );
     assert!(
         !can_set_roles(&s, id(4), id(2), &[id(7)]),
@@ -226,10 +239,15 @@ fn handing_out_roles_needs_the_grant_bit_and_no_smuggled_power() {
 fn grant_refuses_roles_carrying_unheld_power() {
     const MOD: u64 = Permission::ManageRoles.bit() | Permission::ManageMembers.bit();
     const WIDE: u64 = MOD | Permission::ManageSpaceSettings.bit();
-    let s = space(&[(7u128, MOD, 0i32), (8u128, WIDE, 0i32)], &[(2u128, vec![7u128]), (4u128, vec![])], EVERYONE);
+    // The boss holds role 9 at the top; roles 7 and 8 sit below it.
+    let s = space(
+        &[(9u128, MOD, 0i32), (7u128, MOD, 1i32), (8u128, WIDE, 1i32)],
+        &[(2u128, vec![9u128]), (4u128, vec![])],
+        EVERYONE,
+    );
     assert!(
         can_grant(&s, id(2), id(4), id(7)),
-        "handing the boss's own role down is allowed"
+        "handing a junior role down is allowed when it carries only powers the boss holds"
     );
     assert!(
         !can_grant(&s, id(2), id(4), id(8)),
@@ -238,6 +256,10 @@ fn grant_refuses_roles_carrying_unheld_power() {
     assert!(
         !can_set_roles(&s, id(2), id(4), &[id(8)]),
         "a batch cannot smuggle it in"
+    );
+    assert!(
+        !can_grant(&s, id(2), id(4), id(9)),
+        "the boss's own top role is at their rank, not below it"
     );
 }
 
@@ -261,8 +283,7 @@ fn removing_members_needs_the_moderation_bit_at_rank() {
         !can_moderate(&s, id(2), id(1)),
         "the owner is never a target"
     );
-    // A mod above a mod: the same rank reaches, so the senior mod cannot
-    // touch the equal-ranked one they cannot moderate past.
+    // A mod above a mod: the senior reaches the junior, never the reverse.
     let ladder = space(
         &[(7u128, MEMBER_POWER, 0i32), (8u128, MEMBER_POWER, 1i32)],
         &[(2u128, vec![7u128]), (3u128, vec![8u128]), (4u128, vec![])],
@@ -654,4 +675,139 @@ fn the_owner_and_an_admin_ignore_the_overwrites() {
         can_at(&here, Some(&s), id(1), Permission::ManageMembers),
         "and the owner's"
     );
+}
+// -------------------------------------------------------------- the strict ladder
+
+#[test]
+fn peers_never_reach_each_other() {
+    const POWERS: u64 = Permission::ManageMembers.bit()
+        | Permission::BanMembers.bit()
+        | Permission::TimeoutMembers.bit();
+    let s = space(
+        &[(7u128, POWERS, 0i32)],
+        &[(2u128, vec![7u128]), (3u128, vec![7u128])],
+        EVERYONE,
+    );
+    assert!(!can_moderate(&s, id(2), id(3)), "two members at one rank cannot remove each other");
+    assert!(!can_ban(&s, id(2), id(3)), "nor ban");
+    assert!(!can_timeout(&s, id(2), id(3)), "nor time out");
+}
+
+#[test]
+fn a_role_senior_to_the_granter_cannot_be_handed_out_even_with_fewer_powers() {
+    const MOD: u64 = Permission::ManageRoles.bit() | Permission::ManageMembers.bit();
+    // Role 8 carries a subset of the boss's powers but sits above the boss's own top role.
+    let s = space(
+        &[(7u128, MOD, 1i32), (8u128, Permission::ManageMembers.bit(), 0i32)],
+        &[(2u128, vec![7u128]), (4u128, vec![])],
+        EVERYONE,
+    );
+    assert!(!can_grant(&s, id(2), id(4), id(8)), "seniority is a power too: it is not theirs to give");
+    assert!(!can_set_roles(&s, id(2), id(4), &[id(8)]), "nor in a batch");
+    assert!(can_set_roles(&s, id(1), id(4), &[id(8)]), "the owner may assign any role");
+}
+
+#[test]
+fn nobody_hands_themselves_a_role() {
+    const MOD: u64 = Permission::ManageRoles.bit() | Permission::ManageMembers.bit();
+    let s = space(
+        &[(7u128, MOD, 1i32), (9u128, Permission::ManageMembers.bit(), 2i32)],
+        &[(2u128, vec![7u128])],
+        EVERYONE,
+    );
+    assert!(!can_set_roles(&s, id(2), id(2), &[id(9)]), "a member is never below themselves");
+    assert!(!can_moderate(&s, id(2), id(2)), "and cannot remove themselves through the moderation rule");
+}
+
+#[test]
+fn clearing_a_members_roles_needs_manage_roles() {
+    let s = space(
+        &[
+            (7u128, Permission::ManageMembers.bit(), 0i32),
+            (8u128, Permission::ManageRoles.bit() | Permission::ManageMembers.bit(), 0i32),
+            (9u128, Permission::ManageMembers.bit(), 1i32),
+        ],
+        &[(2u128, vec![7u128]), (3u128, vec![8u128]), (4u128, vec![9u128])],
+        EVERYONE,
+    );
+    assert!(
+        !can_set_roles(&s, id(2), id(4), &[]),
+        "ManageMembers alone cannot strip someone's roles"
+    );
+    assert!(can_set_roles(&s, id(3), id(4), &[]), "with ManageRoles it can");
+}
+
+#[test]
+fn ban_and_timeout_stand_on_their_own_bits() {
+    let s = space(
+        &[
+            (7u128, Permission::BanMembers.bit(), 0i32),
+            (8u128, Permission::ManageMembers.bit(), 0i32),
+            (9u128, Permission::TimeoutMembers.bit(), 0i32),
+        ],
+        &[(2u128, vec![7u128]), (3u128, vec![8u128]), (5u128, vec![9u128]), (4u128, vec![])],
+        EVERYONE,
+    );
+    assert!(can_ban(&s, id(2), id(4)), "BanMembers alone bans");
+    assert!(!can_ban(&s, id(3), id(4)), "ManageMembers alone does not ban");
+    assert!(can_timeout(&s, id(5), id(4)), "TimeoutMembers alone times out");
+    assert!(!can_timeout(&s, id(3), id(4)), "ManageMembers alone does not time out");
+    assert!(can_moderate(&s, id(3), id(4)), "ManageMembers still removes");
+    assert!(!can_moderate(&s, id(2), id(4)), "and BanMembers alone does not remove");
+}
+
+// -------------------------------------------------------------- view and send are real gates
+
+#[test]
+fn the_view_and_send_bits_gate_a_channel_whatever_its_masks() {
+    let none = space(&[], &[(2u128, vec![])], EVERYONE);
+    assert_eq!(
+        channel_access(id(2), &channel(), Some(&none)),
+        Access::Locked,
+        "an open channel still asks the member for ViewChannel"
+    );
+    let view_only = space(&[], &[(2u128, vec![])], Permission::ViewChannel.bit());
+    assert_eq!(
+        channel_access(id(2), &channel(), Some(&view_only)),
+        Access::ReadOnly,
+        "seeing without SendMessage is read-only"
+    );
+    let baseline = space(&[], &[(2u128, vec![])], DEFAULT_EVERYONE);
+    assert_eq!(
+        channel_access(id(2), &channel(), Some(&baseline)),
+        Access::Full,
+        "the default baseline keeps ordinary members at full access"
+    );
+    assert_eq!(
+        channel_access(id(1), &channel(), Some(&none)),
+        Access::Full,
+        "the owner holds every bit whatever the baseline"
+    );
+}
+
+#[test]
+fn a_channel_overwrite_can_mute_or_hide_a_channel_for_a_role() {
+    let s = space(
+        &[(7u128, 0, 0i32)],
+        &[(2u128, vec![7u128]), (3u128, vec![])],
+        DEFAULT_EVERYONE,
+    );
+    let muted = over(channel(), id(7), 0, Permission::SendMessage.bit());
+    assert_eq!(channel_access(id(2), &muted, Some(&s)), Access::ReadOnly, "a deny on SendMessage mutes the role there");
+    assert_eq!(channel_access(id(3), &muted, Some(&s)), Access::Full, "a member without the role still posts");
+    let hidden = over(channel(), id(7), 0, Permission::ViewChannel.bit());
+    assert_eq!(channel_access(id(2), &hidden, Some(&s)), Access::Locked, "a deny on ViewChannel hides it from the role");
+    assert_eq!(channel_access(id(3), &hidden, Some(&s)), Access::Full, "and only from the role");
+}
+
+#[test]
+fn an_allow_can_open_posting_to_one_role_in_a_read_only_space() {
+    let s = space(
+        &[(7u128, 0, 0i32)],
+        &[(2u128, vec![7u128]), (3u128, vec![])],
+        Permission::ViewChannel.bit(),
+    );
+    let announce = over(channel(), id(7), Permission::SendMessage.bit(), 0);
+    assert_eq!(channel_access(id(2), &announce, Some(&s)), Access::Full, "the role posts there");
+    assert_eq!(channel_access(id(3), &announce, Some(&s)), Access::ReadOnly, "the rest only read");
 }

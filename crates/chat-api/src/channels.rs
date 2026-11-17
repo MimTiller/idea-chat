@@ -118,10 +118,17 @@ pub async fn update_channel(
     }
     let name = chat_model::text::channel_name(&name).map_err(invalid("name"))?;
     let topic = chat_model::text::about(&topic).map_err(invalid("topic"))?;
+    let gated = (view, post) != (c.view, c.post);
     let updated = app().db.update_channel(channel, &name, &topic, category, view, post).await.map_err(db)?;
     // Every member sees a channel exists — locked or not — so its settings
     // go to everyone; its messages go only to who may read them.
     app().bus.publish(vec![space_topic(space_id)], Event::ChannelUpserted { channel: updated.clone() }).await;
+    // When the masks move, who may read can change and so can which topic the
+    // channel's own events ride: recompute every member's subscriptions.
+    if gated {
+        let members = app().db.member_ids(space_id).await.unwrap_or_default();
+        crate::srv::resync(&members).await;
+    }
     Ok(updated)
 }
 
@@ -142,7 +149,63 @@ pub async fn delete_channel(channel: Id, user: Auth<Principal>) -> Answer<()> {
     Ok(())
 }
 
-/// Put a space's channels in order: each `(channel, category, position)`.
+/// Set one role's allow and deny overwrites on a channel: an ordinary space
+/// channel only (a thread follows its parent, a conversation has no roles),
+/// for a role below the caller's own rank, and with an allow of powers the
+/// caller holds. Both zero removes the overwrite.
+#[server]
+pub async fn set_overwrite(
+    channel: Id,
+    role: Id,
+    allow: PermissionSet,
+    deny: PermissionSet,
+    user: Auth<Principal>,
+) -> Answer<()> {
+    use chat_model::live::Event;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, space_topic};
+    let (me, c, _, space) = body::open(&user.0, channel).await?;
+    let Some(space_id) = c.space else {
+        return Err(forbidden("Only space channels take per-role overwrites."));
+    };
+    match space.as_ref() {
+        Some(space) if perms::can_set_overwrite(space, me, &c, role, allow) => {}
+        _ => return Err(forbidden("Only those who manage channel roles can change that, for a role below their own and with powers they have.")),
+    }
+    app().db.set_overwrite(channel, space_id, role, allow, deny).await.map_err(db)?;
+    // The channel restates itself, so connections fold in its new overwrites.
+    let updated = app().db.channel(channel).await.map_err(db)?;
+    app().bus.publish(vec![space_topic(space_id)], Event::ChannelUpserted { channel: updated }).await;
+    // A gated channel may ride a different topic now: everyone re-derives
+    // their subscriptions, as a mask change does.
+    crate::srv::resync(&app().db.member_ids(space_id).await.unwrap_or_default()).await;
+    Ok(())
+}
+
+/// Drop one role's overwrite on a channel.
+#[server]
+pub async fn clear_overwrite(channel: Id, role: Id, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::live::Event;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, space_topic};
+    let (me, c, _, space) = body::open(&user.0, channel).await?;
+    let Some(space_id) = c.space else {
+        return Err(forbidden("Only space channels take per-role overwrites."));
+    };
+    match space.as_ref() {
+        Some(space) if perms::can_set_overwrite(space, me, &c, role, 0) => {}
+        _ => return Err(forbidden("Only those who manage channel roles can change that, for a role below their own.")),
+    }
+    app().db.clear_overwrite(channel, role).await.map_err(db)?;
+    let updated = app().db.channel(channel).await.map_err(db)?;
+    app().bus.publish(vec![space_topic(space_id)], Event::ChannelUpserted { channel: updated }).await;
+    crate::srv::resync(&app().db.member_ids(space_id).await.unwrap_or_default()).await;
+    Ok(())
+}
+
+/// Put a space's channels in order: each `(channel, category, position)` as given.
 #[server]
 pub async fn order_channels(space: Id, places: Vec<(Id, Option<Id>, i32)>, user: Auth<Principal>) -> Answer<()> {
     use chat_model::live::Event;

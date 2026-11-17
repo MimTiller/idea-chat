@@ -12,6 +12,9 @@ set -u
 cd "$(dirname "$0")/.."
 
 TEST_DB=${TEST_DB:-postgres://postgres:dev@localhost:55432/hearth}
+# A server URL for the chat-db tests: each test makes its own database on it.
+# Without CHAT_TEST_DATABASE_URL those tests skip, and still report green.
+CHAT_TEST_DB=${CHAT_TEST_DB:-postgres://postgres:dev@localhost:55432/postgres}
 FAILED=0
 step() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 verdict() { if [ "$1" = 0 ]; then echo "  PASS"; else echo "  FAIL"; FAILED=1; fi; }
@@ -29,6 +32,11 @@ step "1/12  build — client (wasm bundle) and server"
 ( cd crates/hearth && RUSTFLAGS=--cfg=web_sys_unstable_apis idealyst build --web ) 2>&1 | tail -2
 verdict "${PIPESTATUS[0]}"
 run cargo check -p hearth --features server -q
+# The Idea Chat client is wasm-only. A native `cargo check --workspace` turns
+# chat-api's `server` feature on for it (chat-server is a member), and `chat`
+# then sees the server's signatures and cannot compile; so it is checked here,
+# for the target it ships on, with the flag the CLI would otherwise drop.
+run env RUSTFLAGS=--cfg=web_sys_unstable_apis cargo check --target wasm32-unknown-unknown -p chat -q
 
 step "2/12  unit tests — client model, ids, invite codes, the DSP, and device I/O"
 run cargo test -p hearth --lib -q
@@ -62,9 +70,14 @@ run cargo test -p voice-server -q
 # control, lip-sync arithmetic, the room layout, and the relay over real QUIC
 # — who gets in, what is forwarded, and how fast a revocation lands.
 run cargo test -p call-proto -p call-auth -p call-e2ee -p call-rate -p av-sync -p call-relay -p quic-call -q
+# Idea Chat's shared rules (roles, permissions, live state and who hears what)
+# and the server's gates over spaces built in every shape. No database needed.
+run cargo test -p chat-model -p chat-api -q
 
 step "3/12  data layer — 41 tests against real Postgres"
 TAIL=4 run env HEARTH_TEST_DATABASE_URL="$TEST_DB" cargo test -p hearth-db -q
+# Idea Chat's queries and migrations, including the roles backfill.
+TAIL=4 run env CHAT_TEST_DATABASE_URL="$CHAT_TEST_DB" cargo test -p chat-db -q
 
 step "4/12  auth flows — 42 assertions over HTTP"
 cargo build -p hearth --bin server --features server -q || exit 1

@@ -229,6 +229,17 @@ impl Db {
         Ok(())
     }
 
+    /// Restate the space's everyone baseline: what every member holds
+    /// whatever their roles say.
+    pub async fn set_everyone(&self, space: Id, everyone: u64) -> Result<()> {
+        sqlx::query("UPDATE spaces SET everyone = $2 WHERE id = $1")
+            .bind(space)
+            .bind(everyone as i64)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Restate the role ids `user` holds. The owner holds none by choice:
     /// their control comes from ownership, so a grant never reaches them.
     pub async fn set_role_ids(&self, space: Id, user: Id, roles: &[Id]) -> Result<()> {

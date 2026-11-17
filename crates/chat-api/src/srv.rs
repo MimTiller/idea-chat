@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use chat_db::{Account, Db};
 use chat_model::live::Event;
-use chat_model::perms::{covers, effective};
+use chat_model::perms::{channel_access, rides_own_topic};
 use chat_model::{Channel, Id};
 use futures_util::StreamExt;
 use hmac::{Hmac, Mac};
@@ -144,31 +144,11 @@ pub fn space_topic(space: Id) -> String {
     format!("s:{space}")
 }
 
-/// Whether a viewer hears a space channel's messages: ungated channels ride
-/// on the space topic; a channel with a `view` mask rides on its own topic,
-/// which only viewers covering the mask subscribe to.
-pub fn gated(channel: &Channel) -> bool {
-    channel.view != 0
-}
-
-/// Everything `viewer` hears, given their live state.
+/// Everything `viewer` hears, given their live state. Delegates to the shared
+/// [`chat_model::live::topics_for`], so the server's recompute and the
+/// viewer's own view use one rule.
 pub fn topics_for(state: &chat_model::live::State) -> Vec<String> {
-    let Some(me) = state.me_id() else { return Vec::new() };
-    let mut topics = vec![user_topic(me)];
-    for space in state.spaces.values() {
-        topics.push(space_topic(space.id));
-    }
-    for c in state.channels.values() {
-        if c.kind.is_private() {
-            topics.push(conversation_topic(c.id));
-            continue;
-        }
-        let Some(s) = c.space.and_then(|id| state.spaces.get(&id)) else { continue };
-        if gated(c) && covers(effective(s, me).unwrap_or(0), c.view) {
-            topics.push(conversation_topic(c.id));
-        }
-    }
-    topics
+    chat_model::live::topics_for(state)
 }
 
 /// Everything `user` hears, from the database — for registering a
@@ -179,9 +159,14 @@ pub async fn topics_of(user: Id) -> Vec<String> {
     for space in db.spaces_of(user).await.unwrap_or_default() {
         topics.push(space_topic(space));
         let Ok(s) = db.space(space).await else { continue };
-        let Some(held) = effective(&s, user) else { continue };
-        for c in db.space_channels(space).await.unwrap_or_default() {
-            if gated(&c) && covers(held, c.view) {
+        // The rules channel: a thread's parent supplies masks and overwrites.
+        let channels = db.space_channels(space).await.unwrap_or_default();
+        for c in &channels {
+            let rules: Channel = match c.parent {
+                Some(p) => channels.iter().find(|x| x.id == p).unwrap_or(c).clone(),
+                None => c.clone(),
+            };
+            if rides_own_topic(&rules, s.everyone) && channel_access(user, &rules, Some(&s)).can_read() {
                 topics.push(conversation_topic(c.id));
             }
         }
@@ -198,18 +183,17 @@ pub fn channel_topic_of(state: &chat_model::live::State, channel: Id) -> Option<
     if c.kind.is_private() {
         return Some(conversation_topic(c.id));
     }
-    let view = match c.parent {
-        Some(p) => state.channels.get(&p)?.view,
-        None => c.view,
-    };
-    Some(if view == 0 { space_topic(c.space?) } else { conversation_topic(c.id) })
+    let Some(s) = c.space.and_then(|id| state.spaces.get(&id)) else { return None };
+    // A thread is heard as its parent is.
+    let rules = c.parent.and_then(|p| state.channels.get(&p)).unwrap_or(c);
+    Some(if rides_own_topic(rules, s.everyone) { conversation_topic(c.id) } else { space_topic(s.id) })
 }
 
 /// The topic a channel's events go to. A thread is heard as its parent is.
 pub async fn channel_topic(channel: &Channel) -> Result<String, Failure> {
     Ok(match app().db.audience(channel).await.map_err(db)? {
-        chat_db::Audience::Space { space, view } =>
-            if view == 0 { space_topic(space) } else { conversation_topic(channel.id) },
+        chat_db::Audience::Space { space, rules, everyone } =>
+            if rides_own_topic(&rules, everyone) { conversation_topic(channel.id) } else { space_topic(space) },
         chat_db::Audience::People(_) => conversation_topic(channel.id),
     })
 }

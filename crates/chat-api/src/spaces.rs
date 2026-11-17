@@ -197,6 +197,34 @@ pub async fn set_roles(space: Id, member: Id, roles: Vec<Id>, user: Auth<Princip
     Ok(())
 }
 
+/// Set the space's everyone baseline: what every member holds whatever
+/// their roles say. [`Permission::ManageRoles`] buys the act (the owner
+/// always may), the new baseline may carry only powers the caller holds,
+/// and the admin tag is never allowed in a baseline.
+#[server]
+pub async fn set_everyone(space: Id, permissions: PermissionSet, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::live::Event;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, resync, space_topic};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can_set_everyone(&s, me, permissions) {
+        return Err(forbidden("You can't set a baseline beyond the powers you have."));
+    }
+    app().db.set_everyone(space, permissions).await.map_err(db)?;
+    // Restate the space's baseline, so every connection re-derives what they may see.
+    app().bus
+        .publish(
+            vec![space_topic(space)],
+            Event::BaselineChanged { space, everyone: permissions },
+        )
+        .await;
+    // Who may see a gated channel changes with the baseline: everyone re-derives
+    // their subscriptions.
+    resync(&app().db.member_ids(space).await.unwrap_or_default()).await;
+    Ok(())
+}
+
 /// The roles a space hands out, in list order.
 #[server]
 pub async fn space_roles(space: Id, user: Auth<Principal>) -> Answer<Vec<Role>> {
@@ -243,6 +271,9 @@ pub async fn update_role(space: Id, role: Id, name: String, permissions: Permiss
     let name = chat_model::text::name(&name).map_err(invalid("name"))?;
     app().db.update_role(space, role, &name, permissions).await.map_err(db)?;
     body::publish_roles(space).await;
+    // A role's powers moved, so who can see a gated channel may change:
+    // everyone in the space must re-derive their subscriptions.
+    crate::srv::resync(&app().db.member_ids(space).await.unwrap_or_default()).await;
     Ok(())
 }
 
@@ -260,6 +291,9 @@ pub async fn delete_role(space: Id, role: Id, user: Auth<Principal>) -> Answer<(
     }
     app().db.delete_role(space, role).await.map_err(db)?;
     body::publish_roles(space).await;
+    // The role is gone for everyone holding it, so who may see a gated
+    // channel changes again: everyone re-derives their subscriptions.
+    crate::srv::resync(&app().db.member_ids(space).await.unwrap_or_default()).await;
     Ok(())
 }
 
