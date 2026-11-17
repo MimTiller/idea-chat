@@ -249,6 +249,20 @@ pub fn at_channel(user: Id, channel: &Channel, space: &Space) -> Option<u64> {
     Some((base | allow) & !deny)
 }
 
+/// Whether a channel's live events must ride the channel's own topic rather
+/// than the space's: anyone in the space might not be allowed to see it.
+/// That is so when its `view` mask asks something, when it carries any
+/// per-role overwrite, or when the space's own baseline lacks
+/// [`Permission::ViewChannel`]. Judge the rules channel — a thread's rules
+/// are its parent's, as [`channel_access`] reads them — not the thread
+/// itself. `everyone` is the space's baseline set.
+pub fn rides_own_topic(channel: &Channel, everyone: u64) -> bool {
+    channel.kind.is_private()
+        || channel.view != EVERYONE
+        || !channel.overwrites.is_empty()
+        || !covers(everyone, Permission::ViewChannel.bit())
+}
+
 /// The rank a member acts at: the position of their most senior role — a
 /// lower `position` is more senior — or `None` for a member holding no roles,
 /// who sits at the bottom of the ladder.

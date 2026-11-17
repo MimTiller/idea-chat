@@ -135,8 +135,11 @@ pub(crate) async fn insert_channel(tx: &mut Transaction<'_, Postgres>, init: &Ch
 /// Who a channel's events go to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Audience {
-    /// Members of the space who may see the channel's view mask. For a thread, its parent's.
-    Space { space: Id, view: u64 },
+    /// A space channel: it rides the space's shared topic when open to every
+    /// member who can see it, and its own topic when gated. `rules` is the
+    /// channel whose masks and overwrites decide (the parent's, for a
+    /// thread); `everyone` is the space's baseline permission set.
+    Space { space: Id, rules: Channel, everyone: u64 },
     /// The people in a conversation.
     People(Vec<Id>),
 }
@@ -170,17 +173,20 @@ impl Db {
         Ok(rows.into_iter().map(Channel::from).collect())
     }
 
-    /// Who should hear about a channel.
+    /// Who should hear about a channel: the rules channel (the parent's for
+    /// a thread) and the space's baseline, so the topic decision reads the
+    /// same gates the viewer's access does.
     pub async fn audience(&self, channel: &Channel) -> Result<Audience> {
         if channel.kind.is_private() {
             return Ok(Audience::People(channel.members.clone()));
         }
         let space = channel.space.ok_or(Error::NotFound)?;
-        let view = match channel.parent {
-            Some(parent) => self.channel(parent).await?.view,
-            None => channel.view,
+        let rules = match channel.parent {
+            Some(parent) => self.channel(parent).await?,
+            None => channel.clone(),
         };
-        Ok(Audience::Space { space, view })
+        let s = self.space(space).await?;
+        Ok(Audience::Space { space, rules, everyone: s.everyone })
     }
 
     pub async fn create_channel(&self, init: &ChannelInit) -> Result<Channel> {
