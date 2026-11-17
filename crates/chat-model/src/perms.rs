@@ -11,7 +11,7 @@
 //! The masks spell themselves with [`Permission::bit`], so a channel open to
 //! everyone carries `0` and one open to admins carries [`ADMIN`].
 
-use crate::{Channel, Id, PermissionSet, Space};
+use crate::{Channel, ChannelKind, Id, PermissionSet, Space};
 
 /// What someone may do in a channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -365,6 +365,39 @@ pub fn can_timeout(space: &Space, actor: Id, target: Id) -> bool {
 /// Whether `user` may manage a space's settings through an optional space.
 pub fn manages(space: &Option<Space>, user: Id) -> bool {
     space.as_ref().is_some_and(|s| can(s, user, Permission::ManageSpaceSettings))
+}
+
+/// Whether `user` may restate a space's everyone baseline: [`Permission::ManageRoles`]
+/// buys it (the owner always may, holding everything), and the new baseline may
+/// carry only powers the actor holds. The admin tag is never allowed in a
+/// baseline: the baseline is what every member holds whatever their roles say,
+/// and a baseline tagged admin would make the whole space admin.
+pub fn can_set_everyone(space: &Space, actor: Id, everyone: PermissionSet) -> bool {
+    (actor == space.owner || can(space, actor, Permission::ManageRoles))
+        && everyone & ADMIN == 0
+        && covers(effective(space, actor).unwrap_or(0), everyone)
+}
+
+/// Whether a channel takes per-role overwrites at all: only an ordinary space
+/// channel — a space's text or voice channel. A thread follows its parent's
+/// rules, and a direct or group conversation has no roles to overwrite.
+pub fn takes_overwrites(channel: &Channel, space: &Space) -> bool {
+    channel.space == Some(space.id)
+        && matches!(channel.kind, ChannelKind::Text | ChannelKind::Voice)
+}
+
+/// Setting a channel's overwrite for a role: [`Permission::ManageChannelRoles`]
+/// buys it (the owner always may), and only for a role strictly below the
+/// actor's top role — a manager rewrites what their own rank cannot already
+/// decide. The `allow` may carry only powers the actor holds, so an overwrite
+/// cannot smuggle in reach; `deny` may carry anything, since cutting powers
+/// one holds is never borrowing someone else's. The role must belong to the
+/// channel's space.
+pub fn can_set_overwrite(space: &Space, actor: Id, channel: &Channel, role: Id, allow: PermissionSet) -> bool {
+    takes_overwrites(channel, space)
+        && (actor == space.owner || can(space, actor, Permission::ManageChannelRoles))
+        && space.roles.get(&role).is_some_and(|r| reaches_role(space, actor, r.position))
+        && covers(effective(space, actor).unwrap_or(0), allow)
 }
 
 /// Whether `user` may set who sees and posts in a channel, through an
@@ -745,5 +778,92 @@ mod tests {
         assert!(!can_author_role(&s, id(2), Permission::ManageRoles.bit() | Permission::DeleteOthersMessage.bit()),
                 "but not a power they do not hold");
         assert!(!can_author_role(&s, id(2), ADMIN), "and not the admin tag");
+    }
+
+    #[test]
+    fn the_baseline_is_the_role_manager_s_act() {
+        let s = space(&[(7, Permission::ManageRoles.bit())], &[(1, true, vec![]), (2, false, vec![7]), (3, false, vec![])]);
+        assert!(can_set_everyone(&s, id(1), DEFAULT_EVERYONE), "the owner always may restate it");
+        assert!(
+            can_set_everyone(&s, id(2), Permission::ManageRoles.bit()),
+            "a role manager may restate a baseline of powers they hold"
+        );
+        assert!(
+            !can_set_everyone(&s, id(2), Permission::ManageRoles.bit() | Permission::BanMembers.bit()),
+            "but only powers they hold"
+        );
+        assert!(!can_set_everyone(&s, id(3), Permission::ManageRoles.bit()), "a plain member cannot");
+        assert!(
+            !can_set_everyone(&s, id(2), Permission::ViewChannel.bit() | ADMIN),
+            "and nobody but the owner puts the admin tag in a baseline"
+        );
+        assert!(!can_set_everyone(&s, id(1), ADMIN), "the tag alone is refused even for the owner");
+    }
+
+    #[test]
+    fn an_overwrite_needs_the_channel_role_manager_reaching_the_role() {
+        let s = space(
+            &[(7, Permission::ManageChannelRoles.bit() | Permission::SendMessage.bit()), (8, Permission::SendMessage.bit())],
+            &[(1, true, vec![]), (2, false, vec![7]), (3, false, vec![8])],
+        );
+        let c = channel(ChannelKind::Text, EVERYONE, EVERYONE);
+        assert!(
+            can_set_overwrite(&s, id(2), &c, id(8), Permission::SendMessage.bit()),
+            "a channel-role manager may overwrite a junior role, up to their own powers"
+        );
+        assert!(
+            !can_set_overwrite(&s, id(2), &c, id(7), Permission::SendMessage.bit()),
+            "never a role at their own rank"
+        );
+        assert!(
+            !can_set_overwrite(&s, id(2), &c, id(8), Permission::ManageChannels.bit()),
+            "the allow may not carry a power the actor lacks"
+        );
+        assert!(
+            can_set_overwrite(&s, id(2), &c, id(8), EVERYONE),
+            "a deny of anything is fine, since cutting borrows nothing"
+        );
+        assert!(
+            !can_set_overwrite(&s, id(3), &c, id(7), Permission::ViewChannel.bit()),
+            "a plain member sets no overwrites"
+        );
+        assert!(
+            !can_set_overwrite(&s, id(1), &c, id(99), EVERYONE),
+            "the role must belong to the space"
+        );
+    }
+
+    #[test]
+    fn only_an_ordinary_space_channel_takes_overwrites() {
+        let s = space(&[(7, ADMIN)], &[(1, true, vec![])]);
+        assert!(
+            can_set_overwrite(&s, id(1), &channel(ChannelKind::Voice, EVERYONE, EVERYONE), id(7), EVERYONE),
+            "a voice channel takes them like a text one"
+        );
+        assert!(
+            !can_set_overwrite(&s, id(1), &channel(ChannelKind::Thread, EVERYONE, EVERYONE), id(7), EVERYONE),
+            "a thread follows its parent"
+        );
+        let dm = Channel {
+            id: id(200),
+            kind: ChannelKind::Direct,
+            space: None,
+            name: String::new(),
+            topic: String::new(),
+            category: None,
+            position: 0,
+            parent: None,
+            starter: None,
+            view: 0,
+            post: 0,
+            members: vec![],
+            archived: false,
+            overwrites: BTreeMap::new(),
+            last_message: None,
+            message_count: 0,
+            created_by: id(1),
+            created_at: 0,
+        };
+        assert!(!can_set_overwrite(&s, id(1), &dm, id(7), EVERYONE), "a conversation has no roles to overwrite");
     }
 }
