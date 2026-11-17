@@ -973,6 +973,67 @@ mod tests {
     }
 
     #[test]
+    fn a_restated_baseline_moves_what_a_member_may_do() {
+        // A space whose baseline asks nothing: viewer 2 sees channel 200 locked,
+        // the owner's set is ALL so the same channel is theirs.
+        let mut s = State { me: Some(me(2)), ..world() };
+        s.apply(&Event::BaselineChanged { space: id(100), everyone: 0 });
+        assert_eq!(s.access(id(200)), Access::Locked, "a baseline with no view locks the channel");
+        s.apply(
+            &Event::BaselineChanged {
+                space: id(100),
+                everyone: Permission::ViewChannel.bit() | Permission::SendMessage.bit(),
+            },
+        );
+        assert_eq!(s.access(id(200)), Access::Full, "a baseline that holds view and send opens it again");
+        s.apply(
+            &Event::BaselineChanged {
+                space: id(100),
+                everyone: Permission::ViewChannel.bit() | Permission::SendMessage.bit(),
+            },
+        );
+        assert_eq!(s.access(id(200)), Access::Full, "the same baseline restated changes nothing");
+    }
+
+    #[test]
+    fn a_restated_channel_carries_its_overwrites_into_the_state() {
+        use crate::Overwrite;
+        use std::collections::BTreeMap;
+
+        let mut s = State { me: Some(me(2)), ..world() };
+        s.apply(
+            &Event::RolesChanged {
+                space: id(100),
+                roles: vec![Role {
+                    id: id(8),
+                    name: "r".into(),
+                    permissions: Permission::ViewChannel.bit() | Permission::SendMessage.bit(),
+                    position: 0,
+                }],
+            },
+        );
+        s.apply(&Event::MemberRoles { space: id(100), user: id(2), roles: vec![id(8)] });
+        assert_eq!(s.access(id(200)), Access::Full, "open before any overwrite");
+        // set_overwrite's server event: the channel restated with its rows.
+        let mut gated = channel(200, Some(100), ChannelKind::Text);
+        gated.overwrites = [
+            (
+                id(8),
+                Overwrite { allow: 0, deny: Permission::SendMessage.bit() },
+            )
+        ]
+            .into_iter()
+            .collect::<BTreeMap<Id, Overwrite>>();
+        s.apply(&Event::ChannelUpserted { channel: gated.clone() });
+        assert_eq!(s.access(id(200)), Access::ReadOnly, "the deny cuts posting on the client, as at_channel says");
+        s.apply(&Event::ChannelUpserted { channel: gated.clone() });
+        assert_eq!(s.channels[&id(200)].overwrites.len(), 1, "restating an upsert leaves one row");
+        // clear_overwrite's event: the channel restated without the row.
+        s.apply(&Event::ChannelUpserted { channel: channel(200, Some(100), ChannelKind::Text) });
+        assert_eq!(s.access(id(200)), Access::Full, "the cleared channel opens back up");
+    }
+
+    #[test]
     fn the_wire_form_round_trips() {
         let s = world();
         let e = Event::MessageCreated { message: message(1000, 200, 2) };
