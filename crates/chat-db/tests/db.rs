@@ -129,8 +129,10 @@ async fn a_new_space_seeds_admin_and_moderator_roles_that_nobody_holds() {
     assert_eq!(moderator.position, 1);
     assert_ne!(admin.id, space.id);
     assert_ne!(moderator.id, space.id);
+    assert_eq!(admin.colour, Some(0xE74C3C), "the seeded Admin is red");
+    assert_eq!(moderator.colour, Some(0x2ECC71), "the seeded Moderator is green");
     assert_eq!(db.role_ids(space.id, ana).await.unwrap(), Some(Vec::<Id>::new()), "the owner holds neither");
-    let role = db.create_role(space.id, "Bot", Permission::AddReaction.bit()).await.unwrap();
+    let role = db.create_role(space.id, "Bot", Permission::AddReaction.bit(), None).await.unwrap();
     assert_eq!(role.position, 2, "a hand-made role still lands at the bottom of the seeded ladder");
 }
 
@@ -184,15 +186,19 @@ async fn roles_are_created_named_and_deleted_with_their_holders() {
     let invite = db.create_invite(space.id, ana, None, None).await.unwrap();
     db.redeem_invite(&invite.code, bob).await.unwrap();
 
-    let role = db.create_role(space.id, "Mod", Permission::ManageMembers.bit()).await.unwrap();
+    let role = db.create_role(space.id, "Mod", Permission::ManageMembers.bit(), Some(0x3498DB)).await.unwrap();
+    assert_eq!(role.colour, Some(0x3498DB), "the colour the caller sends is the colour stored");
     db.set_role_ids(space.id, bob, &[role.id]).await.unwrap();
     assert_eq!(db.role_ids(space.id, bob).await.unwrap(), Some(vec![role.id]));
 
-    db.update_role(space.id, role.id, "Moderator", Permission::ManageMembers.bit() | Permission::ManagePins.bit()).await.unwrap();
+    db.update_role(space.id, role.id, "Moderator", Permission::ManageMembers.bit() | Permission::ManagePins.bit(), Some(0x9B59B6)).await.unwrap();
     let after_update = db.space(space.id).await.unwrap();
     let updated = after_update.roles.get(&role.id).unwrap();
     assert_eq!(updated.name, "Moderator");
     assert_eq!(updated.permissions, Permission::ManageMembers.bit() | Permission::ManagePins.bit());
+    assert_eq!(updated.colour, Some(0x9B59B6), "an update restates the colour exactly as sent");
+    db.update_role(space.id, role.id, "Mod Two", Permission::ManageMembers.bit(), None).await.unwrap();
+    assert_eq!(db.space(space.id).await.unwrap().roles.get(&role.id).unwrap().colour, None, "None clears it");
 
     db.delete_role(space.id, role.id).await.unwrap();
     let after = db.space(space.id).await.unwrap();
