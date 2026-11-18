@@ -11,6 +11,7 @@ use chat_model::perms::{
     channel_access,
     ADMIN,
     DEFAULT_EVERYONE,
+    DEFAULT_MODERATOR,
     EVERYONE,
     Permission,
     at_channel,
@@ -812,4 +813,42 @@ fn an_allow_can_open_posting_to_one_role_in_a_read_only_space() {
     let announce = over(channel(), id(7), Permission::SendMessage.bit(), 0);
     assert_eq!(channel_access(id(2), &announce, Some(&s)), Access::Full, "the role posts there");
     assert_eq!(channel_access(id(3), &announce, Some(&s)), Access::ReadOnly, "the rest only read");
+}
+
+// -------------------------------------------------------------- the seeded roles
+
+#[test]
+fn the_seeded_moderator_bans_below_and_creates_and_edits_nothing() {
+    // The two roles a new space seeds: Admin at the top (the tag alone),
+    // Moderator below it. A member the owner hands Moderator to acts at
+    // position 1.
+    let s = space(
+        &[(7u128, ADMIN, 0i32), (8u128, DEFAULT_MODERATOR, 1i32)],
+        &[(2u128, vec![8u128]), (3u128, vec![7u128]), (4u128, vec![])],
+        DEFAULT_EVERYONE,
+    );
+    assert!(
+        can_set_roles(&s, id(1), id(2), &[id(8)]),
+        "the owner hands the seeded Moderator out"
+    );
+    assert!(
+        can_ban(&s, id(2), id(4)),
+        "the Moderator bans a plain member below their rank"
+    );
+    assert!(
+        !can_ban(&s, id(2), id(3)),
+        "but not the Admin-holding member senior to them"
+    );
+    assert!(
+        !can_author_role(&s, id(2), Permission::AddReaction.bit()),
+        "Moderator carries no ManageRoles, so it creates no role"
+    );
+    assert!(
+        !can_edit_role(&s, id(2), id(8)),
+        "and edits no role, not even the one it holds"
+    );
+    assert!(
+        !can_edit_role(&s, id(2), id(7)),
+        "the seeded Admin sits above them, so it is not theirs to rewrite"
+    );
 }

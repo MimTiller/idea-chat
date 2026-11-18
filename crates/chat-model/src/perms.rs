@@ -162,6 +162,18 @@ pub const DEFAULT_EVERYONE: u64 =
     | Permission::VoiceVideo.bit()
     | Permission::VoiceShareScreen.bit();
 
+/// What a new space's seeded Moderator holds: the acts on other people and
+/// on messages that a moderator may take, short of role and invite management
+/// and of the admin tag. The seeded Admin is [`ADMIN`] alone, which expands to
+/// everything.
+pub const DEFAULT_MODERATOR: u64 =
+    Permission::DeleteOthersMessage.bit()
+    | Permission::ManageMembers.bit()
+    | Permission::BanMembers.bit()
+    | Permission::TimeoutMembers.bit()
+    | Permission::MentionEveryone.bit()
+    | Permission::ManagePins.bit();
+
 /// Expand a permission set: a set carrying the admin tag carries all.
 pub fn expand(permissions: u64) -> u64 {
     if permissions & ADMIN != 0 {
