@@ -8,8 +8,10 @@ from, at commit `ca96ac0`.
 
 ## The shape of it
 
-- A space has **named roles**, each a record `{ id, name, permissions, position }`
-  (`chat-model/src/domain.rs::Role`). `permissions` is a `u64` bitset.
+- A space has **named roles**, each a record `{ id, name, permissions, position, colour }`
+  (`chat-model/src/domain.rs::Role`). `permissions` is a `u64` bitset; `colour` is an
+  optional display colour (`0xRRGGBB`, `None` draws the plain role colour; a value
+  above `0xFFFFFF` is refused by `perms::valid_colour`).
 - A member holds **any number of roles**; what they may do is the union of the
   roles' sets, on top of the space's **everyone baseline**.
 - The **owner** is not a role. Ownership is a fact on the space; the owner holds
@@ -47,7 +49,10 @@ transaction: `Admin` (the `IsAdmin` tag alone, which expands to every permission
 at position 0, and `Moderator` (`perms::DEFAULT_MODERATOR`: delete others'
 messages, manage, ban and time out members, mention everyone, manage pins) at
 position 1. A role made after them still lands below both. The role the migration
-backfills for old admins sits at position 0.
+backfills for old admins sits at position 0. Roles carry a display colour a client
+such as RWND can paint the role with: the seeded `Admin` and the backfilled `Admin`
+are `0xE74C3C` (red), the seeded `Moderator` is `0x2ECC71` (green). A colour is not
+a power, so it gates on nothing beyond `ManageRoles`.
 
 ## The everyone baseline
 
@@ -148,8 +153,8 @@ touches the database.
 | `ban_member`, `unban_member` | `can_ban`; unban is the bit alone (the person is no longer a member, so rank cannot be compared) | `BanMembers`; for a ban, target strictly below you |
 | `timeout_member(minutes)` | `can_timeout`; `None` clears | `TimeoutMembers`, target strictly below you |
 | `set_roles(member, roles)` | `can_set_roles` | `ManageMembers` and `ManageRoles`; target below you; every role handed out below you and within your own powers; this includes clearing a member's roles |
-| `create_role` | `can_author_role` | `ManageRoles`; the role may not carry power you lack (the admin tag only for an admin) |
-| `update_role`, `delete_role` | `can_edit_role` (+ `can_author_role` for the new set) | `ManageRoles`; the role strictly below your top role |
+| `create_role(name, permissions, colour)` | `can_author_role` | `ManageRoles`; the role may not carry power you lack (the admin tag only for an admin); `colour` (`Option<u32>`, 0xRRGGBB) is stored as sent, no extra permission, an invalid value is refused |
+| `update_role(name, permissions, colour)`, `delete_role` | `can_edit_role` (+ `can_author_role` for the new set) | `ManageRoles`; the role strictly below your top role; `update_role` sets `colour` to exactly what is sent (like `name`) |
 | `set_everyone(permissions)` | `can_set_everyone` | `ManageRoles` (or owner); no admin tag; only powers you hold |
 | `set_overwrite(channel, role, allow, deny)` | `can_set_overwrite` | `ManageChannelRoles` (or owner); an ordinary space channel only (not a thread or a conversation); the role strictly below you; `allow` only powers you hold; `deny` may be anything; both zero removes it |
 | `clear_overwrite(channel, role)` | `can_set_overwrite` with an empty allow | same |
@@ -171,6 +176,9 @@ Deleting a role removes it from every holder and deletes its channel overwrites 
 - `0004_bans.sql` adds `space_bans` and `space_members.timeout_ends`.
 - `0005_channel_overwrites.sql` adds `channel_overwrites` (foreign keys to the channel and to
   the role, both cascading).
+- `0006_role_colour.sql` adds `space_roles.colour` (nullable `bigint`, 0xRRGGBB) and paints
+  the `Admin`/`Moderator` roles red/green (the 0002 backfill's `Admin` and the seeded pair,
+  matched by name). The role queries read and write the column.
 
 A new space is created with the default baseline, the owner as its only member,
 and **the two seeded roles** (`Admin` at 0, `Moderator` at 1, in
