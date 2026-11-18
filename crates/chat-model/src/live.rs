@@ -1058,6 +1058,7 @@ mod tests {
                     name: "r".into(),
                     permissions: Permission::ViewChannel.bit() | Permission::SendMessage.bit(),
                     position: 0,
+                    colour: None,
                 }],
             },
         );
