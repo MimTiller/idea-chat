@@ -258,9 +258,10 @@ pub async fn space_roles(space: Id, user: Auth<Principal>) -> Answer<Vec<Role>> 
     Ok(roles)
 }
 
-/// Create a role with a name and a permission set.
+/// Create a role with a name, a permission set and an optional display
+/// colour (0xRRGGBB; `None` draws the plain role colour).
 #[server]
-pub async fn create_role(space: Id, name: String, permissions: PermissionSet, user: Auth<Principal>) -> Answer<Role> {
+pub async fn create_role(space: Id, name: String, permissions: PermissionSet, colour: Option<u32>, user: Auth<Principal>) -> Answer<Role> {
     use chat_model::perms;
 
     use crate::srv::{app, db, forbidden, invalid};
@@ -268,15 +269,20 @@ pub async fn create_role(space: Id, name: String, permissions: PermissionSet, us
     if !perms::can_author_role(&s, me, permissions) {
         return Err(forbidden("You can't create a role with powers you do not have."));
     }
+    if !perms::valid_colour(colour) {
+        return Err(invalid("colour")("A role colour must be 0xRRGGBB.".into()));
+    }
     let name = chat_model::text::name(&name).map_err(invalid("name"))?;
-    let role = app().db.create_role(space, &name, permissions).await.map_err(db)?;
+    let role = app().db.create_role(space, &name, permissions, colour).await.map_err(db)?;
     body::publish_roles(space).await;
     Ok(role)
 }
 
-/// Rename a role or change what it allows, in place.
+/// Rename a role, change what it allows, or restate its display colour
+/// (0xRRGGBB; `None` clears it), in place. The colour is set to exactly what
+/// is sent, like the name.
 #[server]
-pub async fn update_role(space: Id, role: Id, name: String, permissions: PermissionSet, user: Auth<Principal>) -> Answer<()> {
+pub async fn update_role(space: Id, role: Id, name: String, permissions: PermissionSet, colour: Option<u32>, user: Auth<Principal>) -> Answer<()> {
     use chat_model::perms;
 
     use crate::srv::{app, db, forbidden, invalid};
@@ -292,8 +298,11 @@ pub async fn update_role(space: Id, role: Id, name: String, permissions: Permiss
     if !perms::can_author_role(&s, me, permissions) {
         return Err(forbidden("You can't grant powers you do not have."));
     }
+    if !perms::valid_colour(colour) {
+        return Err(invalid("colour")("A role colour must be 0xRRGGBB.".into()));
+    }
     let name = chat_model::text::name(&name).map_err(invalid("name"))?;
-    app().db.update_role(space, role, &name, permissions).await.map_err(db)?;
+    app().db.update_role(space, role, &name, permissions, colour).await.map_err(db)?;
     body::publish_roles(space).await;
     // A role's powers moved, so who can see a gated channel may change:
     // everyone in the space must re-derive their subscriptions.
