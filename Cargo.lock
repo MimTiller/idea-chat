@@ -4818,7 +4818,7 @@ dependencies = [
 
 [[package]]
 name = "media-stream"
-version = "1.8.1"
+version = "1.10.0"
 dependencies = [
  "futures-channel",
  "runtime-tls",
@@ -6346,7 +6346,7 @@ dependencies = [
 
 [[package]]
 name = "random"
-version = "1.0.0"
+version = "6.0.0"
 dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
@@ -6764,7 +6764,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-tls"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "runtime-vocabulary"
@@ -9247,7 +9247,7 @@ dependencies = [
 
 [[package]]
 name = "web-glue"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "wasm-bindgen",
 ]
