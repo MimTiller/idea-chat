@@ -678,6 +678,38 @@ fn the_owner_and_an_admin_ignore_the_overwrites() {
         "and the owner's"
     );
 }
+// -------------------------------------------------------------- role colour
+
+#[test]
+fn a_colour_is_valid_up_to_six_hex_digits_and_refused_above() {
+    use chat_model::perms::valid_colour;
+    assert!(valid_colour(None), "no colour stands");
+    assert!(valid_colour(Some(0xFFFFFF)), "the top of 0xRRGGBB is accepted");
+    assert!(!valid_colour(Some(0x1_000000)), "one above is refused");
+}
+
+#[test]
+fn the_colour_needs_no_permission_beyond_the_role_verb_gates() {
+    // The colour is not a power: authoring and editing gate on the same role
+    // rules whatever the colour. A plain member still cannot author even a
+    // coloured role, and the boss still cannot author a power they lack.
+    const MOD: u64 = Permission::ManageRoles.bit();
+    let s = space(
+        &[(7u128, MOD, 0i32)],
+        &[(2u128, vec![7u128]), (4u128, vec![])],
+        EVERYONE,
+    );
+    assert!(can_author_role(&s, id(2), MOD), "the boss authors a plain-bit role");
+    assert!(
+        !can_author_role(&s, id(4), MOD),
+        "a plain member authors nothing, coloured or not"
+    );
+    assert!(
+        !can_author_role(&s, id(2), MOD | Permission::ManageMembers.bit()),
+        "a colour smuggles no power: the gate is still the held powers"
+    );
+}
+
 // -------------------------------------------------------------- the strict ladder
 
 #[test]

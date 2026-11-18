@@ -996,6 +996,28 @@ mod tests {
     }
 
     #[test]
+    fn a_roles_event_carries_a_role_colour_through_the_state() {
+        let mut s = State { me: Some(me(2)), ..world() };
+        let coloured = vec![Role {
+            id: id(8),
+            name: "r".into(),
+            permissions: Permission::ViewChannel.bit() | Permission::SendMessage.bit(),
+            position: 0,
+            colour: Some(0xE74C3C),
+        }];
+        s.apply(&Event::RolesChanged { space: id(100), roles: coloured.clone() });
+        assert_eq!(
+            s.spaces.get(&id(100)).and_then(|sp| sp.roles.get(&id(8)).map(|r| r.colour)),
+            Some(Some(0xE74C3C)),
+            "the colour lands on the member's connection",
+        );
+        s.apply(&Event::RolesChanged { space: id(100), roles: coloured.clone() });
+        assert_eq!(s.spaces.get(&id(100)).and_then(|sp| sp.roles.get(&id(8)).map(|r| r.colour)), Some(Some(0xE74C3C)), "a double apply keeps one role");
+        s.apply(&Event::RolesChanged { space: id(100), roles: vec![Role { id: id(8), name: "r".into(), permissions: Permission::ViewChannel.bit() | Permission::SendMessage.bit(), position: 0, colour: None }] });
+        assert_eq!(s.spaces.get(&id(100)).and_then(|sp| sp.roles.get(&id(8)).map(|r| r.colour)), Some(None), "a colour change to None clears it on the wire too");
+    }
+
+    #[test]
     fn a_restated_channel_carries_its_overwrites_into_the_state() {
         use crate::Overwrite;
         use std::collections::BTreeMap;
