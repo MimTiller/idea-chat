@@ -34,6 +34,22 @@ names survive nowhere in the `chat` crate; see the Client section).
 bodies in cleartext — several content-permission checks below depend on
 that; see E2EE limits.
 
+- A space has **named roles**, each a record `{ id, name, permissions, position, colour }`
+  (`chat-model/src/domain.rs::Role`). `permissions` is a `u64` bitset; `colour` is an
+  optional display colour (`0xRRGGBB`, `None` draws the plain role colour; a value
+  above `0xFFFFFF` is refused by `perms::valid_colour`).
+- A member holds **any number of roles**; what they may do is the union of the
+  roles' sets, on top of the space's **everyone baseline**.
+- The **owner** is not a role. Ownership is a fact on the space; the owner holds
+  every permission whatever roles they carry, and nobody can demote or remove them.
+- **Rank** decides who may act on whom: a lower `position` is more senior, and you
+  only ever act on those strictly below you.
+- A channel can **widen or cut** a role's powers just there (per-channel overwrites),
+  and can still ask for permission bits through its `view` and `post` masks.
+- All the rules live in one module, `chat-model/src/perms.rs`. The server decides
+  with them; the client calls the same functions to decide what to offer, so a
+  button the server would refuse is not drawn.
+
 ## The owner
 
 Ownership is a fact on the space, not a role (`chat-model/src/domain.rs::Space.owner`).
@@ -80,7 +96,10 @@ transaction: `Admin` (the `IsAdmin` tag alone, which expands to every permission
 at position 0, and `Moderator` (`perms::DEFAULT_MODERATOR`: delete others'
 messages, manage, ban and time out members, mention everyone, manage pins) at
 position 1. A role made after them still lands below both. The role the migration
-backfills for old admins sits at position 0.
+backfills for old admins sits at position 0. Roles carry a display colour a client
+such as RWND can paint the role with: the seeded `Admin` and the backfilled `Admin`
+are `0xE74C3C` (red), the seeded `Moderator` is `0x2ECC71` (green). A colour is not
+a power, so it gates on nothing beyond `ManageRoles`.
 
 New roles get their position from the db:
 `chat-db/src/spaces.rs::create_role` (~line 247) assigns
@@ -257,6 +276,24 @@ header states "Each `#[server]` verb makes exactly one of these
 `chat_model::perms` calls before it touches the db", so the allow/refusal
 pair covers the verb without going through the session wire.
 
+In `chat-api/src/spaces.rs` and `channels.rs`. Each makes one call into `perms.rs` before it
+touches the database.
+
+| Verb | Rule | Needs |
+| --- | --- | --- |
+| `remove_member` | `can_moderate` | `ManageMembers`, target strictly below you, not the owner |
+| `ban_member`, `unban_member` | `can_ban`; unban is the bit alone (the person is no longer a member, so rank cannot be compared) | `BanMembers`; for a ban, target strictly below you |
+| `timeout_member(minutes)` | `can_timeout`; `None` clears | `TimeoutMembers`, target strictly below you |
+| `set_roles(member, roles)` | `can_set_roles` | `ManageMembers` and `ManageRoles`; target below you; every role handed out below you and within your own powers; this includes clearing a member's roles |
+| `create_role(name, permissions, colour)` | `can_author_role` | `ManageRoles`; the role may not carry power you lack (the admin tag only for an admin); `colour` (`Option<u32>`, 0xRRGGBB) is stored as sent, no extra permission, an invalid value is refused |
+| `update_role(name, permissions, colour)`, `delete_role` | `can_edit_role` (+ `can_author_role` for the new set) | `ManageRoles`; the role strictly below your top role; `update_role` sets `colour` to exactly what is sent (like `name`) |
+| `set_everyone(permissions)` | `can_set_everyone` | `ManageRoles` (or owner); no admin tag; only powers you hold |
+| `set_overwrite(channel, role, allow, deny)` | `can_set_overwrite` | `ManageChannelRoles` (or owner); an ordinary space channel only (not a thread or a conversation); the role strictly below you; `allow` only powers you hold; `deny` may be anything; both zero removes it |
+| `clear_overwrite(channel, role)` | `can_set_overwrite` with an empty allow | same |
+| `update_channel` | masks need `ManageChannelRoles`; other settings need `ManageSpaceSettings` | |
+
+Deleting a role removes it from every holder and deletes its channel overwrites (foreign key).
+
 ## Database
 
 `crates/chat-db/migrations/0002_roles.sql` (the old doc claimed this
@@ -300,6 +337,20 @@ channel or the role leaves no orphan rows.
 The old doc's claim that "former admins and owners come back with no
 roles" and "locked channels silently open to everyone" is corrected: neither
 happens at `eb5e988`.
+
+- `0002_roles.sql` creates `space_roles`; then **backfills before dropping the old columns**:
+  each space with old admins gets one `Admin` role (its id is the space's own id, permissions
+  the admin tag, position 0) held by each of them, so they keep their power; the old
+  per-channel `view_role`/`post_role` floors become masks (member means 0; admin or owner
+  means the admin tag), so a locked channel stays locked. Old owners need no role, ownership
+  is `spaces.owner_id`. Then `space_members.role` and the two floor columns are dropped.
+- `0003_everyone.sql` adds `spaces.everyone`, default 16207.
+- `0004_bans.sql` adds `space_bans` and `space_members.timeout_ends`.
+- `0005_channel_overwrites.sql` adds `channel_overwrites` (foreign keys to the channel and to
+  the role, both cascading).
+- `0006_role_colour.sql` adds `space_roles.colour` (nullable `bigint`, 0xRRGGBB) and paints
+  the `Admin`/`Moderator` roles red/green (the 0002 backfill's `Admin` and the seeded pair,
+  matched by name). The role queries read and write the column.
 
 A new space is created with the default baseline, the owner as its only member,
 and **the two seeded roles** (`Admin` at 0, `Moderator` at 1, in
