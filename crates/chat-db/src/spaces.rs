@@ -92,6 +92,26 @@ impl Db {
             .bind(position)
             .execute(&mut *tx)
             .await?;
+        // A new space seeds its role ladder: Admin (the tag alone, which
+        // expands to every permission) at the top, then Moderator with the
+        // acts on other people and on the space that fall short of it. They
+        // are ordinary roles afterwards — editable, deletable, renamable —
+        // and nobody holds either until the owner hands one out.
+        for (name, permissions, position) in [
+            ("Admin", chat_model::perms::ADMIN, 0),
+            ("Moderator", chat_model::perms::DEFAULT_MODERATOR, 1),
+        ] {
+            sqlx::query(
+                "INSERT INTO space_roles (space_id, role_id, name, permissions, position) VALUES ($1, $2, $3, $4, $5)",
+            )
+                .bind(id)
+                .bind(new_id())
+                .bind(name)
+                .bind(permissions as i64)
+                .bind(position)
+                .execute(&mut *tx)
+                .await?;
+        }
         let (text_cat, voice_cat) = (new_id(), new_id());
         for (cat, name, pos) in [(text_cat, "Text channels", 0), (voice_cat, "Voice channels", 1)] {
             sqlx::query("INSERT INTO categories (id, space_id, name, position) VALUES ($1, $2, $3, $4)")

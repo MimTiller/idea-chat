@@ -115,6 +115,25 @@ async fn a_new_space_has_an_owner_and_starter_channels() {
     assert_eq!(db.spaces_of(ana).await.unwrap(), vec![space.id]);
 }
 
+#[tokio::test]
+async fn a_new_space_seeds_admin_and_moderator_roles_that_nobody_holds() {
+    let Some(db) = db().await else { return };
+    let ana = account(&db, "ana").await;
+    let (space, _) = db.create_space(&NewSpace { name: "Club".into(), owner: ana }).await.unwrap();
+    let admin = space.roles.values().into_iter().find(|r| r.name == "Admin").unwrap();
+    let moderator = space.roles.values().into_iter().find(|r| r.name == "Moderator").unwrap();
+    assert_eq!(space.roles.len(), 2, "exactly the seeded roles");
+    assert_eq!(admin.permissions, chat_model::perms::ADMIN, "Admin is the tag alone");
+    assert_eq!(admin.position, 0);
+    assert_eq!(moderator.permissions, chat_model::perms::DEFAULT_MODERATOR);
+    assert_eq!(moderator.position, 1);
+    assert_ne!(admin.id, space.id);
+    assert_ne!(moderator.id, space.id);
+    assert_eq!(db.role_ids(space.id, ana).await.unwrap(), Some(Vec::<Id>::new()), "the owner holds neither");
+    let role = db.create_role(space.id, "Bot", Permission::AddReaction.bit()).await.unwrap();
+    assert_eq!(role.position, 2, "a hand-made role still lands at the bottom of the seeded ladder");
+}
+
 /// Two people racing for the last use of an invite: exactly one gets in.
 #[tokio::test]
 async fn the_last_use_of_an_invite_goes_to_one_person() {
@@ -178,7 +197,7 @@ async fn roles_are_created_named_and_deleted_with_their_holders() {
     db.delete_role(space.id, role.id).await.unwrap();
     let after = db.space(space.id).await.unwrap();
     assert_eq!(db.role_ids(space.id, bob).await.unwrap(), Some(Vec::<Id>::new()));
-    assert!(after.roles.is_empty());
+    assert_eq!(after.roles.len(), 2, "only the seeded roles are left");
 }
 
 #[tokio::test]
