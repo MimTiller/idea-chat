@@ -74,6 +74,14 @@ roles' permission sets **on top of the space's everyone baseline**:
 permission. A member pointing at a role the space no longer has gets
 nothing from it: `role_permissions` returns `0` for an unknown role id.
 
+A new role is created at the bottom of the ladder (`max(position) + 1`), so rank
+never blocks making one. A new space seeds two roles itself, in its own creation
+transaction: `Admin` (the `IsAdmin` tag alone, which expands to every permission)
+at position 0, and `Moderator` (`perms::DEFAULT_MODERATOR`: delete others'
+messages, manage, ban and time out members, mention everyone, manage pins) at
+position 1. A role made after them still lands below both. The role the migration
+backfills for old admins sits at position 0.
+
 New roles get their position from the db:
 `chat-db/src/spaces.rs::create_role` (~line 247) assigns
 `max(position) + 1`, so a fresh role sits at the bottom of the ladder.
@@ -293,6 +301,14 @@ The old doc's claim that "former admins and owners come back with no
 roles" and "locked channels silently open to everyone" is corrected: neither
 happens at `eb5e988`.
 
+A new space is created with the default baseline, the owner as its only member,
+and **the two seeded roles** (`Admin` at 0, `Moderator` at 1, in
+`chat-db::create_space`): nobody holds either, and the owner hands them out with
+`set_roles`. They are ordinary roles afterwards, editable, deletable, renamable.
+The `chat` client still has no screen for creating or editing roles, so out of
+the box an owner in that client cannot make a *new* role, but the seeded pair
+gives them something to hand out.
+
 ## Client
 
 The `chat` crate is ported in `eb5e988` itself (the old snapshot said the
@@ -348,6 +364,13 @@ named-role equivalent yet; that is a follow-up (see Not done yet).
   (`update_channel` uses `can_act` directly) — a kept-but-unused helper.
 - The delivery-vs-overwrite gap noted above (`topics_for`/`topics_of` gate
   on the plain effective set).
+
+- Pins, force-mute and move-member have nothing to gate (above).
+- There is no overwrite for the everyone baseline itself, only per role: "only Moderators post
+  in #announcements" works in a space whose baseline lacks `SendMessage`, not in an ordinary one.
+- No client screens for roles, the baseline, overwrites, ban or timeout; the
+  seeded Admin and Moderator cover delegating without them.
+- `perms::manages_channel` has no call site outside the module.
 
 ## E2EE limits
 
