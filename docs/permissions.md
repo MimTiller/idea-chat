@@ -336,6 +336,21 @@ Still only existing screens: there are **no role-creation, role-editing or
 ban/timeout UI screens** in the client — the old member/admin picker has no
 named-role equivalent yet; that is a follow-up (see Not done yet).
 
+- `chat-model`: unit tests in `perms.rs` for every rule.
+- `chat-api/tests/roles_verbs.rs`, `baseline_overwrites.rs`, `delivery.rs`: the rules and the
+  delivery decisions over spaces built in memory. They check the rules, not the HTTP handlers.
+- `chat-db/tests/db.rs`: every query and migration against a real Postgres. These **skip, and
+  still report green, unless `CHAT_TEST_DATABASE_URL` is set** to a server URL (each test makes
+  its own database). `tools/check-all.sh` sets it.
+- `tools/chat-roles-flows.js`: drives the real server functions over HTTP (79 assertions): the
+  default baseline, the seeded Admin and Moderator and what their powers reach, rank and peers,
+  ban and timeout, the baseline, overwrites, and an announcements channel only one role can post
+  in. It found a bug the other tests missed (timeouts could never be set).
+- `RUSTFLAGS=--cfg=web_sys_unstable_apis cargo check --target wasm32-unknown-unknown -p chat`
+  checks the client. A native `cargo check --workspace` still fails in `chat`: the workspace
+  turns on `chat-api`'s `server` feature, and the client cannot compile against the server's
+  signatures.
+
 ## Not done yet
 
 - **ManagePins cannot be enforced:** no pin/unpin endpoint exists anywhere
