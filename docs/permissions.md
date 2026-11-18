@@ -42,8 +42,12 @@ the owner, and otherwise only when the target is strictly junior to the actor
   edits or deletes a role at or above their own top role.
 
 A new role is created at the bottom of the ladder (`max(position) + 1`), so rank
-never blocks making one. The role the migration backfills for old admins sits at
-position 0.
+never blocks making one. A new space seeds two roles itself, in its own creation
+transaction: `Admin` (the `IsAdmin` tag alone, which expands to every permission)
+at position 0, and `Moderator` (`perms::DEFAULT_MODERATOR`: delete others'
+messages, manage, ban and time out members, mention everyone, manage pins) at
+position 1. A role made after them still lands below both. The role the migration
+backfills for old admins sits at position 0.
 
 ## The everyone baseline
 
@@ -168,9 +172,13 @@ Deleting a role removes it from every holder and deletes its channel overwrites 
 - `0005_channel_overwrites.sql` adds `channel_overwrites` (foreign keys to the channel and to
   the role, both cascading).
 
-A new space is created with the default baseline, the owner as its only member, and **no roles**:
-roles are made through `create_role`. The `chat` client has no screen for that yet, so out of the
-box an owner in that client cannot hand out admin or moderator powers.
+A new space is created with the default baseline, the owner as its only member,
+and **the two seeded roles** (`Admin` at 0, `Moderator` at 1, in
+`chat-db::create_space`): nobody holds either, and the owner hands them out with
+`set_roles`. They are ordinary roles afterwards, editable, deletable, renamable.
+The `chat` client still has no screen for creating or editing roles, so out of
+the box an owner in that client cannot make a *new* role, but the seeded pair
+gives them something to hand out.
 
 ## Client
 
@@ -203,7 +211,8 @@ the baseline or overwrites, or to ban or time out**.
 - Pins, force-mute and move-member have nothing to gate (above).
 - There is no overwrite for the everyone baseline itself, only per role: "only Moderators post
   in #announcements" works in a space whose baseline lacks `SendMessage`, not in an ordinary one.
-- No client screens for roles, the baseline, overwrites, ban or timeout, and no default roles.
+- No client screens for roles, the baseline, overwrites, ban or timeout; the
+  seeded Admin and Moderator cover delegating without them.
 - `perms::manages_channel` has no call site outside the module.
 
 ## Encryption
