@@ -86,6 +86,10 @@ pub struct Role {
     pub name: String,
     pub permissions: u64,
     pub position: i32,
+    /// A display colour, 0xRRGGBB; `None` draws the role in the plain role
+    /// colour. Absent from older snapshots, hence the serde default.
+    #[serde(default)]
+    pub colour: Option<u32>,
 }
 
 impl Role {

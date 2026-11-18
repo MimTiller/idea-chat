@@ -143,6 +143,11 @@ pub const ADMIN: u64 = Permission::IsAdmin.bit();
 /// The empty mask: what a channel asks of everyone in the space.
 pub const EVERYONE: u64 = 0;
 
+/// A role's colour is 0xRRGGBB: refuse anything above it.
+pub fn valid_colour(colour: Option<u32>) -> bool {
+    colour.is_none() || colour.unwrap() <= 0xFFFFFF
+}
+
 /// The default everyone baseline a new space seeds: see, post, own-message
 /// edits and deletes, react, attach, embed, and the self-service voice acts.
 /// It stops where the acts on other people and on the space begin.
@@ -548,7 +553,7 @@ mod tests {
                 .collect::<BTreeMap<_, _>>(),
             roles: roles
                 .iter()
-                .map(|&(r, p)| (id(r), Role { id: id(r), name: "r".into(), permissions: p, position: r as i32 }))
+                .map(|&(r, p)| (id(r), Role { id: id(r), name: "r".into(), permissions: p, position: r as i32, colour: None }))
                 .collect::<BTreeMap<_, _>>(),
             categories: vec![],
             created_at: 0,
@@ -696,6 +701,14 @@ mod tests {
         for unused in 24..63 {
             assert_eq!(ALL & (1u64 << unused), 0, "no invented bit slipped into ALL");
         }
+    }
+
+    #[test]
+    fn a_role_colour_is_six_hex_digits_or_nothing() {
+        assert!(valid_colour(None), "no colour is fine");
+        assert!(valid_colour(Some(0)), "black is the low end");
+        assert!(valid_colour(Some(0xFFFFFF)), "white is the high end");
+        assert!(!valid_colour(Some(0x1_000000)), "anything above 0xRRGGBB is refused");
     }
 
     #[test]
