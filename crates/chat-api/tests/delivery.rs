@@ -63,7 +63,7 @@ fn space(everyone: PermissionSet, roles: &[(u128, PermissionSet)], people: &[(u1
         members: ms,
         roles: roles
             .iter()
-            .map(|(r, p)| (id(*r), Role { id: id(*r), name: "r".into(), permissions: *p, position: 0, colour: None }))
+            .map(|(r, p)| (id(*r), Role { id: id(*r), name: "r".into(), permissions: *p, position: 0, colour: None, mentionable: false }))
             .collect::<BTreeMap<Id, Role>>(),
         categories: vec![],
         created_at: 0,
