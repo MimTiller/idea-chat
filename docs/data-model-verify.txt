@@ -28,9 +28,7 @@ PASS user_mutes
 PASS users
 PASS voice_presence
 PASS voice_states
-PASS role Admin
-PASS role admin
 PASS role member
 PASS role moderator
 PASS role owner
-COUNTS pass=35 fail=0 tables=30
+COUNTS pass=33 fail=0 tables=30
