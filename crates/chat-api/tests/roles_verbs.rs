@@ -89,7 +89,7 @@ fn space(roles: &[(u128, u64, i32)], members: &[(u128, Vec<u128>)], everyone: u6
                         permissions: *p,
                         position: *pos,
                         colour: None,
-                    },
+                        mentionable: false},
                 )
             })
             .collect::<BTreeMap<_, _>>(),

@@ -258,10 +258,11 @@ pub async fn space_roles(space: Id, user: Auth<Principal>) -> Answer<Vec<Role>> 
     Ok(roles)
 }
 
-/// Create a role with a name, a permission set and an optional display
-/// colour (0xRRGGBB; `None` draws the plain role colour).
+/// Create a role with a name, a permission set, an optional display
+/// colour (0xRRGGBB; `None` draws the plain role colour) and whether
+/// `@RoleName` pings its holders.
 #[server]
-pub async fn create_role(space: Id, name: String, permissions: PermissionSet, colour: Option<u32>, user: Auth<Principal>) -> Answer<Role> {
+pub async fn create_role(space: Id, name: String, permissions: PermissionSet, colour: Option<u32>, mentionable: bool, user: Auth<Principal>) -> Answer<Role> {
     use chat_model::perms;
 
     use crate::srv::{app, db, forbidden, invalid};
@@ -273,7 +274,7 @@ pub async fn create_role(space: Id, name: String, permissions: PermissionSet, co
         return Err(invalid("colour")("A role colour must be 0xRRGGBB.".into()));
     }
     let name = chat_model::text::name(&name).map_err(invalid("name"))?;
-    let role = app().db.create_role(space, &name, permissions, colour).await.map_err(db)?;
+    let role = app().db.create_role(space, &name, permissions, colour, mentionable).await.map_err(db)?;
     body::publish_roles(space).await;
     Ok(role)
 }
@@ -282,7 +283,7 @@ pub async fn create_role(space: Id, name: String, permissions: PermissionSet, co
 /// (0xRRGGBB; `None` clears it), in place. The colour is set to exactly what
 /// is sent, like the name.
 #[server]
-pub async fn update_role(space: Id, role: Id, name: String, permissions: PermissionSet, colour: Option<u32>, user: Auth<Principal>) -> Answer<()> {
+pub async fn update_role(space: Id, role: Id, name: String, permissions: PermissionSet, colour: Option<u32>, mentionable: bool, user: Auth<Principal>) -> Answer<()> {
     use chat_model::perms;
 
     use crate::srv::{app, db, forbidden, invalid};
@@ -302,7 +303,7 @@ pub async fn update_role(space: Id, role: Id, name: String, permissions: Permiss
         return Err(invalid("colour")("A role colour must be 0xRRGGBB.".into()));
     }
     let name = chat_model::text::name(&name).map_err(invalid("name"))?;
-    app().db.update_role(space, role, &name, permissions, colour).await.map_err(db)?;
+    app().db.update_role(space, role, &name, permissions, colour, mentionable).await.map_err(db)?;
     body::publish_roles(space).await;
     // A role's powers moved, so who can see a gated channel may change:
     // everyone in the space must re-derive their subscriptions.
@@ -584,6 +585,7 @@ pub async fn join_space(code: String, user: Auth<Principal>) -> Answer<Id> {
                         reply_to: None,
                         mentions: vec![],
                         everyone: false,
+                        mention_roles: vec![],
                         attachments: vec![],
                         sticker: None,
                     })

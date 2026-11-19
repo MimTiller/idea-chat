@@ -145,8 +145,22 @@ pub async fn send(
     let people = a.db.users(&audience).await.map_err(db)?;
     let mut resolved = chat_model::text::resolve_mentions(&text, |h| {
         people.iter().find(|u| u.handle.eq_ignore_ascii_case(h)).map(|u| u.id)
+    // A role name resolves only when the sender may ping that role: a
+    // mentionable role for anyone who can read the channel, otherwise only
+    // for a holder of MentionEveryone. A refused role mention stays plain
+    // text in the body, like an unknown handle.
+    }, |w| match &space {
+        Some(s) => s.roles.values().find(|r|
+            r.name.eq_ignore_ascii_case(w) && chat_model::perms::can_mention_role(&s, me, r.id)
+        ).map(|r| r.id),
+        None => None,
     });
     resolved.mentions.retain(|m| audience.contains(m));
+    // A forged role token names nothing the sender can ping.
+    resolved.roles.retain(|r| match &space {
+        Some(s) => chat_model::perms::can_mention_role(&s, me, r),
+        None => false,
+    });
     // `@everyone` needs the MentionEveryone permission.
     let everyone = resolved.everyone
         && match &space {
@@ -168,6 +182,7 @@ pub async fn send(
             reply_to,
             mentions: resolved.mentions,
             everyone,
+            mention_roles: resolved.roles,
             attachments,
             sticker,
         })
@@ -215,12 +230,21 @@ pub async fn edit(id: Id, body: String, user: Auth<Principal>) -> Answer<Message
         None => c.members.clone(),
     };
     let people = a.db.users(&audience).await.map_err(db)?;
-    let resolved = chat_model::text::resolve_mentions(&text, |h| {
+    let mut resolved = chat_model::text::resolve_mentions(&text, |h| {
         people.iter().find(|u| u.handle.eq_ignore_ascii_case(h)).map(|u| u.id)
+    // An edit cannot newly add a role mention: like `@everyone`, only a role
+    // the original message already named resolves here, and it keeps the
+    // original's role mentions whatever the honour rule now says.
+    }, |w| match &space {
+        Some(s) => s.roles.values().find(|r|
+            r.name.eq_ignore_ascii_case(w) && m.mention_roles.contains(&r.id)
+        ).map(|r| r.id),
+        None => None,
     });
+    resolved.roles = m.mention_roles;
     // An edit cannot newly ping everyone; it keeps what the original had.
     let everyone = resolved.everyone && m.mentions_everyone;
-    let edited = a.db.edit_message(id, &resolved.body, &resolved.mentions, everyone).await.map_err(db)?;
+    let edited = a.db.edit_message(id, &resolved.body, &resolved.mentions, everyone, &resolved.roles).await.map_err(db)?;
     a.bus.publish(vec![channel_topic(&c).await?], Event::MessageEdited { message: edited.clone() }).await;
     Ok(edited)
 }

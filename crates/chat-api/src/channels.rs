@@ -265,6 +265,7 @@ pub async fn create_thread(parent: Id, name: String, starter: Option<Id>, user: 
                     reply_to: None,
                     mentions: vec![],
                     everyone: false,
+                    mention_roles: vec![],
                     attachments: vec![],
                     sticker: None,
                 })

@@ -150,6 +150,7 @@ pub async fn join_call(channel: Id, device: Id, user: Auth<Principal>) -> Answer
                     reply_to: None,
                     mentions: vec![],
                     everyone: false,
+                    mention_roles: vec![],
                     attachments: vec![],
                     sticker: None,
                 })
