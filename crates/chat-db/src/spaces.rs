@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use chat_model::{Category, Channel, ChannelKind, Id, Invite, InvitePreview, Member, Role, Space};
+use chat_model::{Category, Channel, ChannelKind, Emoji, Id, Invite, InvitePreview, Member, Role, Space, Sticker};
 use rand::Rng;
 use time::OffsetDateTime;
 
@@ -148,6 +148,16 @@ impl Db {
                 .bind(id)
                 .fetch_all(&self.pool)
                 .await?;
+        let emoji: Vec<(Id, String, Id, Id, OffsetDateTime)> =
+            sqlx::query_as("SELECT emoji_id, name, upload_id, created_by, created_at FROM space_emoji WHERE space_id = $1")
+                .bind(id)
+                .fetch_all(&self.pool)
+                .await?;
+        let stickers: Vec<(Id, String, String, Id, Id, OffsetDateTime)> =
+            sqlx::query_as("SELECT sticker_id, name, description, upload_id, created_by, created_at FROM space_stickers WHERE space_id = $1")
+                .bind(id)
+                .fetch_all(&self.pool)
+                .await?;
         Ok(Space {
             id: row.id,
             name: row.name,
@@ -162,6 +172,10 @@ impl Db {
                     (role_id, Role { id: role_id, name, permissions: permissions as u64, position })).collect::<BTreeMap<_, _>>(),
             categories: categories.into_iter().map(|(id, name, position)| Category { id, name, position }).collect(),
             created_at: millis(row.created_at),
+            emoji: emoji.into_iter().map(|(id, name, upload, created_by, at)|
+                    (id, Emoji { id, name, upload, created_by, created_at: millis(at) })).collect::<BTreeMap<_, _>>(),
+            stickers: stickers.into_iter().map(|(id, name, description, upload, created_by, at)|
+                    (id, Sticker { id, name, description, upload, created_by, created_at: millis(at) })).collect::<BTreeMap<_, _>>(),
         })
     }
 

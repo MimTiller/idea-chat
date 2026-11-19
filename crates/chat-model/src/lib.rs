@@ -13,6 +13,7 @@
 //!   holds only the channels it has opened, and pages history on demand.
 //! - [`text`] — what a message body may contain, how mentions are written
 //!   down, and the rules for names.
+//! - [`expressions`] — the space's custom emoji and stickers, and their rules.
 //! - [`perms`] — who may see, post in and manage what.
 //!
 //! # Identifiers and time
@@ -24,6 +25,7 @@
 //! crate.
 
 pub mod domain;
+pub mod expressions;
 pub mod live;
 pub mod perms;
 pub mod text;

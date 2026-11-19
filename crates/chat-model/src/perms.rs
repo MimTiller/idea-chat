@@ -541,6 +541,8 @@ mod tests {
                 .collect::<BTreeMap<_, _>>(),
             categories: vec![],
             created_at: 0,
+            emoji: BTreeMap::new(),
+            stickers: BTreeMap::new(),
         }
     }
 

@@ -451,6 +451,7 @@ fn empty_message() -> Message {
         thread: None,
         mentions: vec![],
         mentions_everyone: false,
+        sticker: None,
         at: 0,
         edited_at: None,
     }

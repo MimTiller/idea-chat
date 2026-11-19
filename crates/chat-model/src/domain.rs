@@ -11,6 +11,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::expressions::{Emoji, Sticker};
+
 use crate::{Id, Millis};
 
 /// The permission bitset [`crate::perms`] decides against: `Role`'s `permissions`
@@ -129,6 +131,12 @@ pub struct Space {
     pub everyone: PermissionSet,
     pub categories: Vec<Category>,
     pub created_at: Millis,
+    /// The space's custom emoji by id, and its stickers: metadata in the
+    /// clear, so an older snapshot simply decodes with none.
+    #[serde(default)]
+    pub emoji: BTreeMap<Id, Emoji>,
+    #[serde(default)]
+    pub stickers: BTreeMap<Id, Sticker>,
 }
 
 impl Space {
@@ -341,6 +349,9 @@ pub struct Message {
     pub mentions: Vec<Id>,
     /// Whether it says `@everyone`.
     pub mentions_everyone: bool,
+    /// A sticker of the space sent in place of a body; `None` is plain text.
+    #[serde(default)]
+    pub sticker: Option<Id>,
     pub at: Millis,
     pub edited_at: Option<Millis>,
 }

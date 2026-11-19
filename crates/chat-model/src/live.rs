@@ -704,6 +704,8 @@ mod tests {
             roles: BTreeMap::new(),
             categories: vec![],
             created_at: 0,
+            emoji: BTreeMap::new(),
+            stickers: BTreeMap::new(),
         }
     }
 
@@ -743,6 +745,7 @@ mod tests {
             thread: None,
             mentions: vec![],
             mentions_everyone: false,
+            sticker: None,
             at: 0,
             edited_at: None,
         }
