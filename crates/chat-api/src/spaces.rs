@@ -2,6 +2,7 @@
 //! person's own arrangement of them.
 
 use chat_model::{Category, Id, Invite, InvitePreview, PermissionSet, Role};
+use chat_model::expressions::{Emoji, EMOJI_MAX, EMOJI_MAX_BYTES, Sticker, STICKER_MAX, STICKER_MAX_BYTES};
 use chat_model::perms::Permission;
 use server::server;
 use server_kit::Auth;
@@ -22,6 +23,29 @@ mod body {
     pub async fn publish_roles(space: Id) {
         let roles = app().db.space(space).await.map(|s| s.roles.values().into_iter().cloned().collect::<Vec<Role>>()).unwrap_or_default();
         app().bus.publish(vec![space_topic(space)], Event::RolesChanged { space, roles }).await;
+    }
+
+    /// Restate the space's whole custom emoji set to everyone in it, so new
+    /// `:name:` pictures land on every connection.
+    pub async fn publish_emoji(space: Id) {
+        let emoji = app().db.emoji(space).await.map(|v| v.into_iter().cloned().collect()).unwrap_or_default();
+        app().bus.publish(vec![space_topic(space)], Event::EmojiChanged { space, emoji }).await;
+    }
+
+    /// Restate the space's whole sticker set to everyone in it, so new
+    /// stickers land on every connection.
+    pub async fn publish_stickers(space: Id) {
+        let stickers = app().db.stickers(space).await.map(|v| v.into_iter().cloned().collect()).unwrap_or_default();
+        app().bus.publish(vec![space_topic(space)], Event::StickersChanged { space, stickers }).await;
+    }
+
+    /// Whether `upload` is a finished image upload by `actor` within `max` bytes
+    /// — what an emoji or sticker may claim as its picture.
+    pub async fn upload_image_ok(upload: Id, actor: Id, max: usize) -> bool {
+        match app().db.upload(upload, actor).await {
+            Ok(u) => u.uploaded && u.content_type.starts_with("image/") && u.size <= max as u64,
+            Err(_) => false,
+        }
     }
 
     /// The space and the caller's effective permissions in it; refused unless
@@ -294,6 +318,164 @@ pub async fn delete_role(space: Id, role: Id, user: Auth<Principal>) -> Answer<(
     // The role is gone for everyone holding it, so who may see a gated
     // channel changes again: everyone re-derives their subscriptions.
     crate::srv::resync(&app().db.member_ids(space).await.unwrap_or_default()).await;
+    Ok(())
+}
+
+/// The space's custom emoji, for anyone in it: what `:name:` pictures it shows.
+#[server]
+pub async fn list_emoji(space: Id, user: Auth<Principal>) -> Answer<Vec<Emoji>> {
+    use crate::srv::{app, db};
+    body::member(&user.0, space).await?;
+    app().db.emoji(space).await.map_err(db)
+}
+
+/// The space's stickers, for anyone in it: what a member may send in place of
+/// a body.
+#[server]
+pub async fn list_stickers(space: Id, user: Auth<Principal>) -> Answer<Vec<Sticker>> {
+    use crate::srv::{app, db};
+    body::member(&user.0, space).await?;
+    app().db.stickers(space).await.map_err(db)
+}
+
+/// Make a custom emoji from a finished image upload, naming it `:name:`. Needs
+/// the expressions bit; the image and the space's emoji count are checked.
+#[server]
+pub async fn create_emoji(space: Id, name: String, upload: Id, user: Auth<Principal>) -> Answer<Emoji> {
+    use chat_model::expressions;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, invalid};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can(&s, me, Permission::ManageExpressions) {
+        return Err(forbidden("Only those who manage custom emoji can add one."));
+    }
+    if !expressions::emoji_name_ok(&name) {
+        return Err(invalid("name")("An emoji name is 2-32 letters, digits or underscores."));
+    }
+    let a = app();
+    if !body::upload_image_ok(upload, me, EMOJI_MAX_BYTES) {
+        return Err(invalid("upload")("Upload an image for the emoji first."));
+    }
+    if a.db.emoji_count(space).await.map_err(db)? >= EMOJI_MAX as i64 {
+        return Err(forbidden("The space is at its emoji limit."));
+    }
+    let emoji = a.db.create_emoji(space, &name, upload, me).await.map_err(db)?;
+    body::publish_emoji(space).await;
+    Ok(emoji)
+}
+
+/// Rename a custom emoji, in place. Needs the expressions bit; the new name
+/// follows the emoji-name rules and must not clash.
+#[server]
+pub async fn rename_emoji(space: Id, emoji: Id, name: String, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::expressions;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, invalid};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can(&s, me, Permission::ManageExpressions) {
+        return Err(forbidden("Only those who manage custom emoji can rename one."));
+    }
+    if !s.emoji.contains_key(&emoji) {
+        return Err(forbidden("That emoji doesn't exist."));
+    }
+    if !expressions::emoji_name_ok(&name) {
+        return Err(invalid("name")("An emoji name is 2-32 letters, digits or underscores."));
+    }
+    app().db.rename_emoji(space, emoji, &name).await.map_err(db)?;
+    body::publish_emoji(space).await;
+    Ok(())
+}
+
+/// Delete a custom emoji. Old messages keep the plain `:name:` text.
+#[server]
+pub async fn delete_emoji(space: Id, emoji: Id, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can(&s, me, Permission::ManageExpressions) {
+        return Err(forbidden("Only those who manage custom emoji can remove one."));
+    }
+    if !s.emoji.contains_key(&emoji) {
+        return Err(forbidden("That emoji doesn't exist."));
+    }
+    app().db.delete_emoji(space, emoji).await.map_err(db)?;
+    body::publish_emoji(space).await;
+    Ok(())
+}
+
+/// Make a sticker from a finished image upload, named and optionally described.
+/// Needs the expressions bit; the image and the space's sticker count are
+/// checked, as is the description length.
+#[server]
+pub async fn create_sticker(space: Id, name: String, description: String, upload: Id, user: Auth<Principal>) -> Answer<Sticker> {
+    use chat_model::expressions;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, invalid, me};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can(&s, me, Permission::ManageExpressions) {
+        return Err(forbidden("Only those who manage stickers can add one."));
+    }
+    if !expressions::sticker_name_ok(&name) {
+        return Err(invalid("name")("A sticker name is 2-30 characters, no < > or : and no blank padding."));
+    }
+    if !expressions::sticker_description_ok(&description) {
+        return Err(invalid("description")("A sticker description is at most 100 characters."));
+    }
+    let a = app();
+    if !body::upload_image_ok(upload, me, STICKER_MAX_BYTES) {
+        return Err(invalid("upload")("Upload an image for the sticker first."));
+    }
+    if a.db.sticker_count(space).await.map_err(db)? >= STICKER_MAX as i64 {
+        return Err(forbidden("The space is at its sticker limit."));
+    }
+    let sticker = a.db.create_sticker(space, &name, &description, upload, me).await.map_err(db)?;
+    body::publish_stickers(space).await;
+    Ok(sticker)
+}
+
+/// Rename a sticker, in place. Needs the expressions bit; the new name follows
+/// the sticker-name rules and must not clash.
+#[server]
+pub async fn rename_sticker(space: Id, sticker: Id, name: String, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::expressions;
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden, invalid};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can(&s, me, Permission::ManageExpressions) {
+        return Err(forbidden("Only those who manage stickers can rename one."));
+    }
+    if !s.stickers.contains_key(&sticker) {
+        return Err(forbidden("That sticker doesn't exist."));
+    }
+    if !expressions::sticker_name_ok(&name) {
+        return Err(invalid("name")("A sticker name is 2-30 characters, no < > or : and no blank padding."));
+    }
+    app().db.rename_sticker(space, sticker, &name).await.map_err(db)?;
+    body::publish_stickers(space).await;
+    Ok(())
+}
+
+/// Delete a sticker; a message that sent it keeps its body and loses the
+/// sticker reference.
+#[server]
+pub async fn delete_sticker(space: Id, sticker: Id, user: Auth<Principal>) -> Answer<()> {
+    use chat_model::perms;
+
+    use crate::srv::{app, db, forbidden};
+    let (me, s) = body::member(&user.0, space).await?;
+    if !perms::can(&s, me, Permission::ManageExpressions) {
+        return Err(forbidden("Only those who manage stickers can remove one."));
+    }
+    if !s.stickers.contains_key(&sticker) {
+        return Err(forbidden("That sticker doesn't exist."));
+    }
+    app().db.delete_sticker(space, sticker).await.map_err(db)?;
+    body::publish_stickers(space).await;
     Ok(())
 }
 
