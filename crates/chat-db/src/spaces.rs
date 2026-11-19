@@ -3,7 +3,8 @@
 
 use std::collections::BTreeMap;
 
-use chat_model::{Category, Channel, ChannelKind, Emoji, Id, Invite, InvitePreview, Member, Role, Space, Sticker};
+use chat_model::{Category, Channel, ChannelKind, Id, Invite, InvitePreview, Member, Role, Space};
+use chat_model::expressions::{Emoji, Sticker};
 use rand::Rng;
 use time::OffsetDateTime;
 
@@ -323,8 +324,124 @@ impl Db {
         Ok(())
     }
 
-    /// Make `to` the owner. The old owner keeps whatever roles they hold;
-    /// ownership is the space's own fact, so it simply moves.
+    // ---- custom emoji and stickers ----
+
+    /// The space's custom emoji, as its members see them. Listing needs only
+    /// membership, which the API checks before calling.
+    pub async fn emoji(&self, space: Id) -> Result<Vec<Emoji>> {
+        let rows: Vec<(Id, String, Id, Id, OffsetDateTime)> =
+            sqlx::query_as("SELECT emoji_id, name, upload_id, created_by, created_at FROM space_emoji WHERE space_id = $1")
+                .bind(space)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(|(id, name, upload, created_by, at)|
+                Emoji { id, name, upload, created_by, created_at: millis(at) }).collect())
+    }
+
+    /// Create a custom emoji from a finished image upload. A name already in
+    /// the space is refused; the count limit is the API's question, so this
+    /// counts what is there.
+    pub async fn create_emoji(&self, space: Id, name: &str, upload: Id, created_by: Id) -> Result<Emoji> {
+        let id = new_id();
+        let at: OffsetDateTime = sqlx::query_scalar(
+            "INSERT INTO space_emoji (space_id, emoji_id, name, upload_id, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING created_at",
+        )
+            .bind(space)
+            .bind(id)
+            .bind(name)
+            .bind(upload)
+            .bind(created_by)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| crate::taken(e, "space_emoji_name", "That emoji name"))?;
+        Ok(Emoji { id, name: name.to_string(), upload, created_by, created_at: millis(at) })
+    }
+
+    pub async fn rename_emoji(&self, space: Id, emoji: Id, name: &str) -> Result<()> {
+        sqlx::query("UPDATE space_emoji SET name = $3 WHERE space_id = $1 AND emoji_id = $2")
+            .bind(space)
+            .bind(emoji)
+            .bind(name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| crate::taken(e, "space_emoji_name", "That emoji name"))?;
+        Ok(())
+    }
+
+    /// Delete a custom emoji: its row, and through the FK its upload row.
+    pub async fn delete_emoji(&self, space: Id, emoji: Id) -> Result<()> {
+        sqlx::query("DELETE FROM space_emoji WHERE space_id = $1 AND emoji_id = $2")
+            .bind(space)
+            .bind(emoji)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The space's stickers, as its members see them.
+    pub async fn stickers(&self, space: Id) -> Result<Vec<Sticker>> {
+        let rows: Vec<(Id, String, String, Id, Id, OffsetDateTime)> =
+            sqlx::query_as("SELECT sticker_id, name, description, upload_id, created_by, created_at FROM space_stickers WHERE space_id = $1")
+                .bind(space)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(|(id, name, description, upload, created_by, at)|
+                Sticker { id, name, description, upload, created_by, created_at: millis(at) }).collect())
+    }
+
+    pub async fn create_sticker(&self, space: Id, name: &str, description: &str, upload: Id, created_by: Id) -> Result<Sticker> {
+        let id = new_id();
+        let at: OffsetDateTime = sqlx::query_scalar(
+            "INSERT INTO space_stickers (space_id, sticker_id, name, description, upload_id, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at",
+        )
+            .bind(space)
+            .bind(id)
+            .bind(name)
+            .bind(description)
+            .bind(upload)
+            .bind(created_by)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| crate::taken(e, "space_stickers_name", "That sticker name"))?;
+        Ok(Sticker { id, name: name.to_string(), description: description.to_string(), upload, created_by, created_at: millis(at) })
+    }
+
+    pub async fn rename_sticker(&self, space: Id, sticker: Id, name: &str) -> Result<()> {
+        sqlx::query("UPDATE space_stickers SET name = $3 WHERE space_id = $1 AND sticker_id = $2")
+            .bind(space)
+            .bind(sticker)
+            .bind(name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| crate::taken(e, "space_stickers_name", "That sticker name"))?;
+        Ok(())
+    }
+
+    /// Delete a sticker: its row, and through the FK its upload row.
+    pub async fn delete_sticker(&self, space: Id, sticker: Id) -> Result<()> {
+        sqlx::query("DELETE FROM space_stickers WHERE space_id = $1 AND sticker_id = $2")
+            .bind(space)
+            .bind(sticker)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// How many custom emoji the space holds — what the count limit checks.
+    pub async fn emoji_count(&self, space: Id) -> Result<i64> {
+        Ok(sqlx::query_scalar("SELECT count(*) FROM space_emoji WHERE space_id = $1")
+            .bind(space)
+            .fetch_one(&self.pool)
+            .await?)
+    }
+
+    pub async fn sticker_count(&self, space: Id) -> Result<i64> {
+        Ok(sqlx::query_scalar("SELECT count(*) FROM space_stickers WHERE space_id = $1")
+            .bind(space)
+            .fetch_one(&self.pool)
+            .await?)
+    }
+
     /// Ban `user`: record the ban and take them out of the space now. The
     /// ban is what keeps their seat closed while they are out of it.
     pub async fn ban(&self, space: Id, user: Id) -> Result<()> {
@@ -411,6 +528,8 @@ impl Db {
         Ok(())
     }
 
+    /// Make `to` the owner. The old owner keeps whatever roles they hold;
+    /// ownership is the space's own fact, so it simply moves.
     pub async fn transfer_space(&self, space: Id, _from: Id, to: Id) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         let is_member: Option<i32> =

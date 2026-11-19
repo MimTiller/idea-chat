@@ -439,3 +439,50 @@ async fn the_snapshot_holds_spaces_conversations_and_people() {
     assert_eq!(s.relations[&bob], Relation::Outgoing);
     assert!(!s.sidebar(space.id).is_empty());
 }
+
+#[tokio::test]
+async fn emoji_and_stickers_are_made_renamed_counted_and_removed() {
+    let Some(db) = db().await else { return };
+    let ana = account(&db, "ana").await;
+    let (space, _) = db.create_space(&NewSpace { name: "Club".into(), owner: ana }).await.unwrap();
+
+    let wave_upload = db.create_upload(ana, "emoji", "wave.png", 1024, "image/png").await.unwrap();
+    db.confirm_upload(wave_upload.id, 1024, Some((16, 16))).await.unwrap();
+    let wave = db.create_emoji(space.id, "wave", wave_upload.id, ana).await.unwrap();
+    assert_eq!(db.emoji_count(space.id).await.unwrap(), 1);
+
+    db.rename_emoji(space.id, wave.id, "hello").await.unwrap();
+    let after_rename = db.space(space.id).await.unwrap();
+    assert_eq!(after_rename.emoji[&wave.id].name, "hello");
+    assert_eq!(after_rename.emoji[&wave.id].upload, wave_upload.id);
+
+    let clash = db.create_emoji(space.id, "hello", wave_upload.id, ana).await;
+    assert!(matches!(clash, Err(chat_db::Error::Taken("That emoji name"))));
+
+    let stick_upload = db.create_upload(ana, "sticker", "cat.png", 2048, "image/png").await.unwrap();
+    db.confirm_upload(stick_upload.id, 2048, Some((64, 64))).await.unwrap();
+    let cat = db.create_sticker(space.id, "cat", "a cat", stick_upload.id, ana).await.unwrap();
+    assert_eq!(db.sticker_count(space.id).await.unwrap(), 1);
+    assert_eq!(db.space(space.id).await.unwrap().stickers[&cat.id].description, "a cat");
+
+    // A message posts without a sticker, and reads back with none.
+    let general = db.space_channels(space.id).await.unwrap()
+        .iter().find(|c| c.kind == ChannelKind::Text).unwrap().id;
+    let posted = db.post(&text(general, ana, "hi")).await.unwrap();
+    assert_eq!(posted.message.sticker, None);
+
+    // The emoji and sticker uploads are claimed by the space, so the
+    // unclaimed-message sweep never reaches them.
+    assert_eq!(db.sweep_uploads().await.unwrap(), Vec::<String>::new());
+    let still_there = db.upload(wave_upload.id, ana).await.unwrap();
+    assert_eq!(still_there.id, wave_upload.id);
+
+    db.delete_emoji(space.id, wave.id).await.unwrap();
+    db.delete_sticker(space.id, cat.id).await.unwrap();
+    let after = db.space(space.id).await.unwrap();
+    assert!(after.emoji.is_empty() && after.stickers.is_empty());
+    assert_eq!(db.emoji_count(space.id).await.unwrap(), 0);
+    assert_eq!(db.sticker_count(space.id).await.unwrap(), 0);
+    // The old message still reads back, with its sticker dropped.
+    assert_eq!(db.message(posted.message.id).await.unwrap().body, "hi");
+}
