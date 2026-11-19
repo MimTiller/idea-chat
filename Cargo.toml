@@ -107,7 +107,7 @@ idea-ui-mail       = { version = "8.0.0", registry = "idealyst" }
 # resolve from that repo's workspace. media-stream is the registry release; the
 # [patch] section below points the registry copies of the crates denoise drags
 # in at the same commit, giving this workspace exactly one instance of each.
-denoise            = { git = "https://github.com/IdealystIO/idealyst-native", rev = "26a4aff7434b1c6169bbad6131ba4bedeff7f8c2" }
+denoise            = { git = "https://github.com/IdealystIO/idealyst-native", rev = "036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3" }
 media-stream       = { version = "1.10.0", registry = "idealyst" }
 
 # Redirect registry crates to the same idealyst-native commit denoise comes
@@ -125,6 +125,6 @@ media-stream       = { version = "1.10.0", registry = "idealyst" }
 # runtime-tls likewise: the path media-stream pulls it by path, everything else
 # from the registry, and two copies means two sets of thread-locals.
 [patch."sparse+https://crates.idealyst.io/index/"]
-media-stream = { git = "https://github.com/IdealystIO/idealyst-native", rev = "26a4aff7434b1c6169bbad6131ba4bedeff7f8c2" }
-web-glue     = { git = "https://github.com/IdealystIO/idealyst-native", rev = "26a4aff7434b1c6169bbad6131ba4bedeff7f8c2" }
-runtime-tls  = { git = "https://github.com/IdealystIO/idealyst-native", rev = "26a4aff7434b1c6169bbad6131ba4bedeff7f8c2" }
+media-stream = { git = "https://github.com/IdealystIO/idealyst-native", rev = "036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3" }
+web-glue     = { git = "https://github.com/IdealystIO/idealyst-native", rev = "036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3" }
+runtime-tls  = { git = "https://github.com/IdealystIO/idealyst-native", rev = "036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3" }

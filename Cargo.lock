@@ -124,7 +124,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -2270,7 +2270,7 @@ dependencies = [
 [[package]]
 name = "denoise"
 version = "1.5.2"
-source = "git+https://github.com/IdealystIO/idealyst-native?rev=26a4aff7434b1c6169bbad6131ba4bedeff7f8c2#26a4aff7434b1c6169bbad6131ba4bedeff7f8c2"
+source = "git+https://github.com/IdealystIO/idealyst-native?rev=036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3#036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3"
 dependencies = [
  "deep_filter",
  "futures-channel",
@@ -2614,7 +2614,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4815,7 +4815,7 @@ dependencies = [
 [[package]]
 name = "media-stream"
 version = "1.10.0"
-source = "git+https://github.com/IdealystIO/idealyst-native?rev=26a4aff7434b1c6169bbad6131ba4bedeff7f8c2#26a4aff7434b1c6169bbad6131ba4bedeff7f8c2"
+source = "git+https://github.com/IdealystIO/idealyst-native?rev=036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3#036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3"
 dependencies = [
  "futures-channel",
  "runtime-tls",
@@ -5037,7 +5037,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6255,7 +6255,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6358,7 +6358,7 @@ dependencies = [
 [[package]]
 name = "random"
 version = "6.0.0"
-source = "git+https://github.com/IdealystIO/idealyst-native?rev=26a4aff7434b1c6169bbad6131ba4bedeff7f8c2#26a4aff7434b1c6169bbad6131ba4bedeff7f8c2"
+source = "git+https://github.com/IdealystIO/idealyst-native?rev=036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3#036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3"
 dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
@@ -6778,7 +6778,7 @@ dependencies = [
 [[package]]
 name = "runtime-tls"
 version = "0.1.1"
-source = "git+https://github.com/IdealystIO/idealyst-native?rev=26a4aff7434b1c6169bbad6131ba4bedeff7f8c2#26a4aff7434b1c6169bbad6131ba4bedeff7f8c2"
+source = "git+https://github.com/IdealystIO/idealyst-native?rev=036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3#036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3"
 
 [[package]]
 name = "runtime-vocabulary"
@@ -6853,7 +6853,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6938,7 +6938,7 @@ dependencies = [
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7610,7 +7610,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7868,7 +7868,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8070,7 +8070,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8839,7 +8839,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -9267,8 +9267,8 @@ dependencies = [
 
 [[package]]
 name = "web-glue"
-version = "2.2.0"
-source = "git+https://github.com/IdealystIO/idealyst-native?rev=26a4aff7434b1c6169bbad6131ba4bedeff7f8c2#26a4aff7434b1c6169bbad6131ba4bedeff7f8c2"
+version = "2.4.0"
+source = "git+https://github.com/IdealystIO/idealyst-native?rev=036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3#036bf4e5dfc4c3261d921ff9f82db3aaf3d8e5f3"
 dependencies = [
  "wasm-bindgen",
 ]
@@ -9428,7 +9428,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
