@@ -126,8 +126,8 @@ function findKey(o, key) {
 
 // ---- helpers over the verbs --------------------------------------------------------
 const as = (who) => (name, args) => call(name, args, who.cookie);
-async function role(by, space, name, perms) {
-  const r = await by("create_role", [space, name, perms]);
+async function role(by, space, name, perms, colour = null, mentionable = false) {
+  const r = await by("create_role", [space, name, perms, colour, mentionable]);
   return { r, id: r.ok ? r.value.id : null };
 }
 async function channel(by, space, name) {
@@ -160,7 +160,7 @@ const history = (by, ch) => by("history", [ch, { at: "latest" }]);
   ok("a member posts in an open channel", first);
   const firstId = first.ok ? first.value.id : null;
   ok("a member reads it back", await history(B, room));
-  refused("a member cannot create a role", await B("create_role", [S, "x", P.SendMessage]));
+  refused("a member cannot create a role", await B("create_role", [S, "x", P.SendMessage, null, false]));
   refused("a member cannot set the everyone baseline", await B("set_everyone", [S, P.ViewChannel]));
   refused("a member cannot ban", await B("ban_member", [S, cat.id]));
   refused("a member cannot time anyone out", await B("timeout_member", [S, cat.id, 5]));
@@ -176,9 +176,9 @@ const history = (by, ch) => by("history", [ch, { at: "latest" }]);
   const helper = await role(O, S, "Helper", P.SendMessage);
   ok("the owner makes a Helper role within their powers", helper.r);
   ok("the Admin hands that junior role to a member", await C("set_roles", [S, bob.id, [helper.id]]));
-  ok("the Admin can edit a junior role", await C("update_role", [S, helper.id, "Helper", or(P.SendMessage, P.AddReaction)]));
-  refused("a Moderator creates no role (ManageRoles is not in the seeded set)", await M("create_role", [S, "quiet", P.AddReaction]));
-  refused("a Moderator edits no role of their own rank", await M("update_role", [S, byName.Moderator, "Moderator", P.BanMembers]));
+  ok("the Admin can edit a junior role", await C("update_role", [S, helper.id, "Helper", or(P.SendMessage, P.AddReaction), null, false]));
+  refused("a Moderator creates no role (ManageRoles is not in the seeded set)", await M("create_role", [S, "quiet", P.AddReaction, null, false]));
+  refused("a Moderator edits no role of their own rank", await M("update_role", [S, byName.Moderator, "Moderator", P.BanMembers, null, false]));
   refused("a Moderator cannot set the everyone baseline (no ManageRoles)", await M("set_everyone", [S, P.ViewChannel]));
   refused("a Moderator cannot make a channel (ManageChannels is not in the seeded set)", await M("create_channel", [S, "text", "quiet", null]));
 
@@ -249,6 +249,28 @@ const history = (by, ch) => by("history", [ch, { at: "latest" }]);
   refused("a warden cannot allow a power they lack", await B("set_overwrite", [room, later.id, P.ManageMembers, 0n]));
   refused("a Moderator cannot set one (ManageChannelRoles is not in the seeded set)", await M("set_overwrite", [room, later.id, 0n, P.SendMessage]));
   ok("the warden clears theirs", await B("clear_overwrite", [room, later.id]));
+
+  section("9. role colours");
+  report(
+    seeded.ok && (seeded.value.find((r) => r.name === "Admin") || {}).colour === 0xE74C3C,
+    "the seeded Admin came back painted red"
+  );
+  report(
+    seeded.ok && (seeded.value.find((r) => r.name === "Moderator") || {}).colour === 0x2ECC71,
+    "the seeded Moderator came back painted green"
+  );
+  const painted = await role(O, S, "Painted", P.AddReaction, 0x8e44ad, true);
+  ok("the owner makes a coloured role", painted.r);
+  report(painted.r.ok && painted.r.value.colour === 0x8e44ad, "the created role carries its colour");
+  report(painted.r.ok && painted.r.value.mentionable === true, "the created role carries its mentionable flag");
+  const bad = await O("create_role", [S, "Bad", 0n, 0x1000000, false]);
+  refused("a colour above 0xRRGGBB is refused", bad);
+  ok("the owner repaints the role", await O("update_role", [S, painted.id, "Painted", P.AddReaction, 0xc0392b, true]));
+  const painted2 = await O("space_roles", [S]);
+  report(
+    painted2.ok && (painted2.value.find((r) => r.id === painted.id) || {}).colour === 0xc0392b,
+    "the repaint landed on the role list"
+  );
 
   console.log(`\n${total} assertions, ${failed} failed`);
   const roles = await O("space_roles", [S]);
