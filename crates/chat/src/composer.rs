@@ -288,7 +288,7 @@ pub fn Composer(#[prop(static)] channel: Id, #[prop(static)] placeholder: String
             let reply = ui.reply.peek().get(&channel).copied();
             sending.set(true);
             let s = s.clone();
-            runtime_core::spawn_then(chat_api::messages::send(channel, body, reply, ready), move |r| {
+            runtime_core::spawn_then(chat_api::messages::send(channel, body, reply, ready, None), move |r| {
                 sending.set(false);
                 match r {
                     Ok(message) => {

@@ -26,6 +26,8 @@ pub enum Purpose {
     Message,
     Avatar,
     Icon,
+    Emoji,
+    Sticker,
 }
 
 /// Where to put an upload's bytes.
@@ -55,9 +57,16 @@ pub async fn begin_upload(name: String, size: u64, content_type: String, purpose
         Purpose::Message => (MAX_UPLOAD, "message"),
         Purpose::Avatar => (MAX_IMAGE, "avatar"),
         Purpose::Icon => (MAX_IMAGE, "icon"),
+        Purpose::Emoji => (chat_model::expressions::EMOJI_MAX_BYTES as u64, "emoji"),
+        Purpose::Sticker => (chat_model::expressions::STICKER_MAX_BYTES as u64, "sticker"),
     };
     if size == 0 || size > limit {
-        return Err(invalid("size")(format!("Files can be up to {} MB.", limit / 1024 / 1024)));
+        let hint = if limit >= 1024 * 1024 {
+            format!("Files can be up to {} MB.", limit / 1024 / 1024)
+        } else {
+            format!("Files can be up to {} KiB.", limit / 1024)
+        };
+        return Err(invalid("size")(hint));
     }
     if purpose != Purpose::Message && !content_type.starts_with("image/") {
         return Err(invalid("content_type")("That needs to be an image.".into()));

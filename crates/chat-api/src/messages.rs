@@ -82,6 +82,7 @@ pub async fn send(
     body: String,
     reply_to: Option<Id>,
     attachments: Vec<Id>,
+    sticker: Option<Id>,
     user: Auth<Principal>,
 ) -> Answer<Message> {
     use chat_db::NewMessage;
@@ -117,8 +118,18 @@ pub async fn send(
     if !attachments.is_empty() && !chat_model::perms::can_at(&c, space.as_ref(), me, chat_model::perms::Permission::AttachFile) {
         return Err(forbidden("You can't attach files in this channel."));
     }
+    // A sticker must be one of the space's — not some other space's.
+    if let Some(sid) = sticker {
+        let ok: bool = match &space {
+            Some(s) => s.stickers.contains_key(&sid),
+            None => false,
+        };
+        if !ok {
+            return Err(invalid("sticker")("That sticker isn't one of this space's.".into()));
+        }
+    }
     let text = chat_model::text::message(&body).map_err(invalid("body"))?;
-    if text.is_empty() && attachments.is_empty() {
+    if text.is_empty() && attachments.is_empty() && sticker.is_none() {
         return Err(invalid("body")("Write something first.".into()));
     }
     // A link the reader expands needs EmbedLink. The body is checked where
@@ -158,6 +169,7 @@ pub async fn send(
             mentions: resolved.mentions,
             everyone,
             attachments,
+            sticker,
         })
         .await
         .map_err(db)?;
