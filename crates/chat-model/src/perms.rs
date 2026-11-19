@@ -92,6 +92,8 @@ pub enum Permission {
     BanMembers,
     /// Time members out so they cannot send or speak until it expires.
     TimeoutMembers,
+    /// Create, rename and delete the space's custom emoji and stickers.
+    ManageExpressions,
     /// Change the space's own settings.
     ManageSpaceSettings,
     /// Every permission. A role with this bit is an admin whatever else it
@@ -127,6 +129,7 @@ impl Permission {
             Permission::ManageSpaceSettings => 21,
             Permission::BanMembers => 22,
             Permission::TimeoutMembers => 23,
+            Permission::ManageExpressions => 24,
             Permission::IsAdmin => 63,
         }
     }
@@ -134,7 +137,7 @@ impl Permission {
 
 /// Every permission: what the owner holds, and what a role tagged admin
 /// expands to.
-pub const ALL: u64 = (1u64 << 63) | ((1u64 << 24) - 1);
+pub const ALL: u64 = (1u64 << 63) | ((1u64 << 25) - 1);
 
 /// The admin tag alone: what a channel asks of its admins, and what a
 /// permission set must cover to count as an admin (for the roster).
@@ -672,14 +675,18 @@ mod tests {
     #[test]
     fn the_new_bits_stay_inside_all() {
         assert_eq!(
-            Permission::BanMembers.bit() | Permission::TimeoutMembers.bit() | Permission::IsAdmin.bit() | (1u64 << 22) - 1,
+            Permission::ManageExpressions.bit()
+                | Permission::BanMembers.bit()
+                | Permission::TimeoutMembers.bit()
+                | Permission::IsAdmin.bit()
+                | (1u64 << 22) - 1,
             ALL,
-            "the ban and timeout bits sit in the space and ALL covers exactly the defined bits",
+            "the expression bit sits in the space and ALL covers exactly the defined bits",
         );
-        for p in [Permission::BanMembers, Permission::TimeoutMembers] {
+        for p in [Permission::ManageExpressions, Permission::BanMembers, Permission::TimeoutMembers] {
             assert!((ALL & p.bit()) == p.bit(), "ALL holds every defined bit");
         }
-        for unused in 24..63 {
+        for unused in 25..63 {
             assert_eq!(ALL & (1u64 << unused), 0, "no invented bit slipped into ALL");
         }
     }
@@ -704,6 +711,24 @@ mod tests {
             has(effective(&s, id(1)).unwrap_or(EVERYONE), Permission::ManageMembers),
             "the owner moderates whatever their roles say",
         );
+    }
+
+    #[test]
+    fn the_expression_bit_sits_where_the_roles_do() {
+        // A seeded-shaped space: an Admin role (the backfilled tag), a
+        // Moderator role with the moderation bits, the default baseline, and
+        // a plain member.
+        let mut s = space(&[(7, ADMIN), (8, Permission::ManageRoles.bit() | Permission::ManageMembers.bit())],
+            &[(1, true, vec![]), (2, false, vec![7]), (3, false, vec![8]), (4, false, vec![])]);
+        s.everyone = DEFAULT_EVERYONE;
+        assert!(has(effective(&s, id(1)).unwrap_or(EVERYONE), Permission::ManageExpressions),
+            "the owner holds everything, so expressions too");
+        assert!(has(effective(&s, id(2)).unwrap_or(EVERYONE), Permission::ManageExpressions),
+            "the Admin tag expands to every bit");
+        assert!(!has(effective(&s, id(3)).unwrap_or(EVERYONE), Permission::ManageExpressions),
+            "the Moderator role stops at its own bits");
+        assert!(!has(effective(&s, id(4)).unwrap_or(EVERYONE), Permission::ManageExpressions),
+            "the @everyone baseline does not reach the expressions bit");
     }
 
     #[test]
