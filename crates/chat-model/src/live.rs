@@ -339,6 +339,10 @@ impl State {
     }
 
     fn message_created(&mut self, message: &Message) {
+        let Some(me) = self.me_id() else { return };
+        // Read before the channel's mutable borrow; see `my_roles` for the
+        // rule.
+        let roles: Vec<Id> = self.my_roles(message.channel);
         let Some(channel) = self.channels.get_mut(&message.channel) else { return };
         // A duplicate, or one older than what we know is newest: the counts
         // already include it.
@@ -348,13 +352,12 @@ impl State {
         channel.last_message = Some(message.id);
         channel.message_count += 1;
         let private = channel.kind.is_private();
-        let Some(me) = self.me_id() else { return };
         let read = self.reads.entry(message.channel).or_default();
         if message.author == me {
             // Posting is reading: everything up to your own message is seen.
             read.last_read = Some(message.id);
             read.mentions = 0;
-        } else if read.last_read.is_none_or(|l| message.id > l) && (private || message.mentions_user(me)) {
+        } else if read.last_read.is_none_or(|l| message.id > l) && (private || message.mentions_user(me, &roles)) {
             read.mentions += 1;
         }
     }
@@ -391,6 +394,37 @@ impl State {
     pub fn my_permissions(&self, space: Id) -> Option<u64> {
         let Some(me) = self.me_id() else { return None };
         self.spaces.get(&space).and_then(|s| perms::effective(s, me))
+    }
+
+    /// The viewer's role ids in the channel's space, empty for a
+    /// conversation (which has no space, and no roles). A thread's roles
+    /// come through its parent, as `access` judges it.
+    pub fn my_roles(&self, channel: Id) -> Vec<Id> {
+        let Some(me) = self.me_id() else { return Vec::new() };
+        let space = self.channels.get(&channel).and_then(|c| c.space.or_else(
+            || c.parent.and_then(|p| self.channels.get(&p)).and_then(|p| p.space)
+        ));
+        match space {
+            Some(space) => match self.spaces.get(&space) {
+                Some(s) => s.members.get(&me).map(|m| m.roles.clone()).unwrap_or_default(),
+                None => Vec::new(),
+            },
+            None => Vec::new(),
+        }
+    }
+
+    /// A role's name, looked for in every space the viewer can see — role
+    /// ids are global, so a token names at most one role. Empty when the
+    /// role is gone, which leaves its old mentions as plain text.
+    pub fn role_label(&self, role: Id) -> String {
+        self.spaces.values().find_map(|s| s.roles.get(&role).map(|r| r.name.clone())).unwrap_or_default()
+    }
+
+    /// A role's name in a space — empty when the role is gone, which leaves
+    /// its old mentions as plain text.
+    pub fn role_name(&self, space: Id, role: Id) -> String {
+        self.spaces.get(&space).map(|s| s.roles.get(&role).map(|r| r.name.clone()).unwrap_or_default())
+            .unwrap_or_default()
     }
 
     /// Whether a channel has messages the viewer has not read.
@@ -743,6 +777,7 @@ mod tests {
             thread: None,
             mentions: vec![],
             mentions_everyone: false,
+            mention_roles: vec![],
             at: 0,
             edited_at: None,
         }
@@ -1004,6 +1039,7 @@ mod tests {
             permissions: Permission::ViewChannel.bit() | Permission::SendMessage.bit(),
             position: 0,
             colour: Some(0xE74C3C),
+            mentionable: false,
         }];
         s.apply(&Event::RolesChanged { space: id(100), roles: coloured.clone() });
         assert_eq!(
@@ -1013,7 +1049,8 @@ mod tests {
         );
         s.apply(&Event::RolesChanged { space: id(100), roles: coloured.clone() });
         assert_eq!(s.spaces.get(&id(100)).and_then(|sp| sp.roles.get(&id(8)).map(|r| r.colour)), Some(Some(0xE74C3C)), "a double apply keeps one role");
-        s.apply(&Event::RolesChanged { space: id(100), roles: vec![Role { id: id(8), name: "r".into(), permissions: Permission::ViewChannel.bit() | Permission::SendMessage.bit(), position: 0, colour: None }] });
+        s.apply(&Event::RolesChanged { space: id(100), roles: vec![Role { id: id(8), name: "r".into(), permissions: Permission::ViewChannel.bit() | Permission::SendMessage.bit(), position: 0, colour: None,
+                mentionable: false}] });
         assert_eq!(s.spaces.get(&id(100)).and_then(|sp| sp.roles.get(&id(8)).map(|r| r.colour)), Some(None), "a colour change to None clears it on the wire too");
     }
 
@@ -1032,6 +1069,7 @@ mod tests {
                     permissions: Permission::ViewChannel.bit() | Permission::SendMessage.bit(),
                     position: 0,
                     colour: None,
+                    mentionable: false,
                 }],
             },
         );

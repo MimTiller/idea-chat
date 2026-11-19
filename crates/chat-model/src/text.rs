@@ -8,6 +8,7 @@
 //! ```text
 //! <@0192f0c4-…>   a person, by id
 //! <#0192f0c4-…>   a channel, by id
+//! <%0192f0c4-…>   a role, by id
 //! @everyone       everyone who can read the channel
 //! ```
 //!
@@ -157,22 +158,31 @@ fn bounded(raw: &str, min: usize, max: usize, what: &str) -> Result<String, Inva
     Ok(t.to_string())
 }
 
-/// A body with `@handle` mentions resolved to tokens.
+/// A body with `@handle` and `@RoleName` mentions resolved to tokens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolved {
     pub body: String,
     pub mentions: Vec<Id>,
     pub everyone: bool,
+    /// Role tokens `<%id>` the body now carries.
+    pub roles: Vec<Id>,
 }
 
-/// Turn every `@handle` that `lookup` knows into a `<@id>` token, and note
-/// `@everyone`. Handles inside code are left alone, as are ones `lookup`
-/// does not know (they stay plain text). Mention tokens already in the body
-/// are kept and counted.
-pub fn resolve_mentions(body: &str, lookup: impl Fn(&str) -> Option<Id>) -> Resolved {
+/// Turn every `@handle` that `lookup` knows into a `<@id>` token, every
+/// `@RoleName` that `role` knows into a `<%id>` token, and note `@everyone`.
+/// Handles inside code are left alone, as are ones `lookup` does not know
+/// (they stay plain text). Mention tokens already in the body are kept and
+/// counted. A person's handle wins a name clash with a role, and `everyone`
+/// stays reserved for `@everyone`.
+pub fn resolve_mentions(
+    body: &str,
+    lookup: impl Fn(&str) -> Option<Id>,
+    role: impl Fn(&str) -> Option<Id>,
+) -> Resolved {
     let mut out = String::with_capacity(body.len());
     let mut mentions = Vec::new();
     let mut everyone = false;
+    let mut roles = Vec::new();
     let mut in_block = false;
     for (n, line) in body.split('\n').enumerate() {
         if n > 0 {
@@ -200,10 +210,16 @@ pub fn resolve_mentions(body: &str, lookup: impl Fn(&str) -> Option<Id>) -> Reso
             }
             if !in_code && c == '<' {
                 if let Some((token, len)) = token_at(&chars[i..]) {
-                    if let Token::User(id) = token {
-                        if !mentions.contains(&id) {
-                            mentions.push(id);
-                        }
+                    match token {
+                        Token::User(id) =>
+                            if !mentions.contains(&id) {
+                                mentions.push(id);
+                            },
+                        Token::Role(id) =>
+                            if !roles.contains(&id) {
+                                roles.push(id);
+                            },
+                        Token::Channel(_) => {},
                     }
                     out.extend(&chars[i..i + len]);
                     i += len;
@@ -233,14 +249,21 @@ pub fn resolve_mentions(body: &str, lookup: impl Fn(&str) -> Option<Id>) -> Reso
                     i = end;
                     continue;
                 }
+                if let Some(id) = (!word.is_empty()).then(|| role(&word)).flatten() {
+                    if !roles.contains(&id) {
+                        roles.push(id);
+                    }
+                    out.push_str(&format!("<%{id}>"));
+                    i = end;
+                    continue;
+                }
             }
             out.push(c);
             i += 1;
         }
     }
-    Resolved { body: out, mentions, everyone }
+    Resolved { body: out, mentions, everyone, roles }
 }
-
 fn is_handle_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '.'
 }
@@ -248,9 +271,11 @@ fn is_handle_char(c: char) -> bool {
 enum Token {
     User(Id),
     Channel(Id),
+    Role(Id),
 }
 
-/// A `<@uuid>` or `<#uuid>` token at the start of `chars`, and its length.
+/// A `<@uuid>`, `<#uuid>` or `<%uuid>` token at the start of `chars`, and its
+/// length.
 fn token_at(chars: &[char]) -> Option<(Token, usize)> {
     // "<@" + 36 + ">"
     const LEN: usize = 39;
@@ -262,6 +287,7 @@ fn token_at(chars: &[char]) -> Option<(Token, usize)> {
     match chars[1] {
         '@' => Some((Token::User(id), LEN)),
         '#' => Some((Token::Channel(id), LEN)),
+        '%' => Some((Token::Role(id), LEN)),
         _ => None,
     }
 }
@@ -273,6 +299,7 @@ pub enum Inline {
     Link { url: String },
     User(Id),
     Channel(Id),
+    Role(Id),
     Everyone,
 }
 
@@ -392,6 +419,7 @@ pub fn inlines(text: &str) -> Vec<Inline> {
                 out.push(match token {
                     Token::User(id) => Inline::User(id),
                     Token::Channel(id) => Inline::Channel(id),
+                    Token::Role(id) => Inline::Role(id),
                 });
                 i += len;
                 continue;
@@ -471,7 +499,7 @@ fn find_from(chars: &[char], from: usize, s: &str) -> Option<usize> {
 /// A body as one line of plain text — for a reply's quote, a notification or
 /// a search result — with tokens written as `@name` / `#name` through the
 /// lookups, and formatting dropped. Cut to `max` characters with an ellipsis.
-pub fn plain(body: &str, user: impl Fn(Id) -> String, channel: impl Fn(Id) -> String, max: usize) -> String {
+pub fn plain(body: &str, user: impl Fn(Id) -> String, channel: impl Fn(Id) -> String, role: impl Fn(Id) -> String, max: usize) -> String {
     let mut out = String::new();
     for block in parse(body) {
         if !out.is_empty() {
@@ -492,6 +520,10 @@ pub fn plain(body: &str, user: impl Fn(Id) -> String, channel: impl Fn(Id) -> St
                             out.push('#');
                             out.push_str(&channel(id));
                         }
+                        Inline::Role(id) => {
+                            out.push('@');
+                            out.push_str(&role(id));
+                        }
                         Inline::Everyone => out.push_str("@everyone"),
                     }
                 }
@@ -508,20 +540,26 @@ pub fn plain(body: &str, user: impl Fn(Id) -> String, channel: impl Fn(Id) -> St
 }
 
 /// A stored body as its author would retype it: person tokens back to
-/// `@handle`, so an edit round-trips through [`resolve_mentions`]. Channel
-/// tokens and everything else stay as stored.
-pub fn plain_editable(body: &str, handle: impl Fn(Id) -> String) -> String {
+/// `@handle` and role tokens back to `@RoleName`, so an edit round-trips
+/// through [`resolve_mentions`]. Channel tokens and everything else stay as
+/// stored. An empty name leaves the token alone — a deleted role's mention
+/// stays plain text in the stored body.
+pub fn plain_editable(body: &str, handle: impl Fn(Id) -> String, role_name: impl Fn(Id) -> String) -> String {
     let chars: Vec<char> = body.chars().collect();
     let mut out = String::with_capacity(body.len());
     let mut i = 0;
     while i < chars.len() {
         if chars[i] == '<' {
-            if let Some((Token::User(id), len)) = token_at(&chars[i..]) {
-                let h = handle(id);
-                if !h.is_empty() {
+            if let Some((token, len)) = token_at(&chars[i..]) {
+                let (name, id_len) = match token {
+                    Token::User(id) => (handle(id), len),
+                    Token::Role(id) => (role_name(id), len),
+                    Token::Channel(_) => (String::new(), 0),
+                };
+                if id_len > 0 && !name.is_empty() {
                     out.push('@');
-                    out.push_str(&h);
-                    i += len;
+                    out.push_str(&name);
+                    i += id_len;
                     continue;
                 }
             }
@@ -578,7 +616,7 @@ mod tests {
             "ana" => Some(id(1)),
             "bob" => Some(id(2)),
             _ => None,
-        });
+        }, |_| None);
         assert_eq!(r.mentions, vec![id(1), id(2)]);
         assert!(r.body.starts_with(&format!("hi <@{}> and <@{}>, <@{}> again.", id(1), id(2), id(1))));
         assert!(r.body.ends_with("@nobody"), "unknown handles stay text");
@@ -587,20 +625,21 @@ mod tests {
 
     #[test]
     fn a_mention_in_code_is_not_a_mention() {
-        let r = resolve_mentions("`@ana` and\n```\n@ana\n```\n", |_| Some(id(1)));
+        let r = resolve_mentions("`@ana` and\n```\n@ana\n```\n", |_| Some(id(1)), |_| Some(id(9)));
         assert!(r.mentions.is_empty());
+        assert!(r.roles.is_empty());
         assert!(r.body.contains("`@ana`"));
     }
 
     #[test]
     fn an_email_address_is_not_a_mention() {
-        let r = resolve_mentions("mail ana@example.com", |_| Some(id(1)));
+        let r = resolve_mentions("mail ana@example.com", |_| Some(id(1)), |_| None);
         assert!(r.mentions.is_empty());
     }
 
     #[test]
     fn everyone_is_noted() {
-        let r = resolve_mentions("@everyone look", |_| None);
+        let r = resolve_mentions("@everyone look", |_| None, |_| None);
         assert!(r.everyone);
         assert_eq!(r.body, "@everyone look");
     }
@@ -608,7 +647,43 @@ mod tests {
     #[test]
     fn existing_tokens_count_as_mentions() {
         let body = format!("re <@{}>", id(7));
-        assert_eq!(resolve_mentions(&body, |_| None).mentions, vec![id(7)]);
+        assert_eq!(resolve_mentions(&body, |_| None, |_| None).mentions, vec![id(7)]);
+    }
+
+    #[test]
+    fn role_names_resolve_case_insensitively_to_role_tokens() {
+        let r = resolve_mentions("ping @Mod and @mod once more", |_| None, |w| (w == "mod").then_some(id(9)));
+        assert_eq!(r.roles, vec![id(9)]);
+        assert_eq!(r.body, format!("ping <%{}> and <%{}> once more", id(9), id(9)));
+    }
+
+    #[test]
+    fn a_person_handle_wins_a_role_name_clash() {
+        let r = resolve_mentions("@mod hi", |_| Some(id(3)), |_| Some(id(9)));
+        assert_eq!(r.mentions, vec![id(3)]);
+        assert!(r.roles.is_empty());
+        assert_eq!(r.body, format!("<@{0}> hi", id(3)));
+    }
+
+    #[test]
+    fn a_role_named_everyone_stays_reserved() {
+        let r = resolve_mentions("@everyone", |_| None, |_| Some(id(9)));
+        assert!(r.everyone);
+        assert!(r.roles.is_empty());
+        assert_eq!(r.body, "@everyone");
+    }
+
+    #[test]
+    fn a_role_mention_in_code_is_not_a_mention() {
+        let r = resolve_mentions("`@mod`", |_| None, |_| Some(id(9)));
+        assert!(r.roles.is_empty());
+        assert_eq!(r.body, "`@mod`");
+    }
+
+    #[test]
+    fn existing_role_tokens_count_once() {
+        let body = format!("re <%{}> <%{}>", id(9), id(9));
+        assert_eq!(resolve_mentions(&body, |_| None, |_| None).roles, vec![id(9)]);
     }
 
     #[test]
@@ -659,16 +734,16 @@ mod tests {
     #[test]
     fn plain_text_names_tokens_and_truncates() {
         let body = format!("**hi** <@{}>, a very long tail here", id(1));
-        assert_eq!(plain(&body, |_| "ana".into(), |_| "c".into(), 100), "hi @ana, a very long tail here");
-        assert_eq!(plain(&body, |_| "ana".into(), |_| "c".into(), 8), "hi @ana…");
+        assert_eq!(plain(&body, |_| "ana".into(), |_| "c".into(), |_| "mod".into(), 100), "hi @ana, a very long tail here");
+        assert_eq!(plain(&body, |_| "ana".into(), |_| "c".into(), |_| "mod".into(), 8), "hi @ana…");
     }
 
     #[test]
     fn an_edit_round_trips_mentions_through_handles() {
         let body = format!("hi <@{}>!", id(1));
-        let shown = plain_editable(&body, |_| "ana".into());
+        let shown = plain_editable(&body, |_| "ana".into(), |_| String::new());
         assert_eq!(shown, "hi @ana!");
-        assert_eq!(resolve_mentions(&shown, |h| (h == "ana").then(|| id(1))).body, body);
+        assert_eq!(resolve_mentions(&shown, |h| (h == "ana").then(|| id(1)), |_| None).body, body);
     }
 
     #[test]

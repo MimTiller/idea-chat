@@ -148,6 +148,15 @@ pub fn valid_colour(colour: Option<u32>) -> bool {
     colour.is_none() || colour.unwrap() <= 0xFFFFFF
 }
 
+/// Whether `actor` may ping the role `role`: a mentionable role is open to
+/// everyone who can read the channel; one that is not may still be pinged by
+/// someone holding [`Permission::MentionEveryone`], whose whole-space ping
+/// covers its holders. A role the space does not have is never pingable.
+pub fn can_mention_role(space: &Space, actor: Id, role: Id) -> bool {
+    let Some(role) = space.roles.get(&role) else { return false };
+    role.mentionable || can(space, actor, Permission::MentionEveryone)
+}
+
 /// The default everyone baseline a new space seeds: see, post, own-message
 /// edits and deletes, react, attach, embed, and the self-service voice acts.
 /// It stops where the acts on other people and on the space begin.
@@ -553,7 +562,7 @@ mod tests {
                 .collect::<BTreeMap<_, _>>(),
             roles: roles
                 .iter()
-                .map(|&(r, p)| (id(r), Role { id: id(r), name: "r".into(), permissions: p, position: r as i32, colour: None }))
+                .map(|&(r, p)| (id(r), Role { id: id(r), name: "r".into(), permissions: p, position: r as i32, colour: None, mentionable: false }))
                 .collect::<BTreeMap<_, _>>(),
             categories: vec![],
             created_at: 0,
@@ -709,6 +718,18 @@ mod tests {
         assert!(valid_colour(Some(0)), "black is the low end");
         assert!(valid_colour(Some(0xFFFFFF)), "white is the high end");
         assert!(!valid_colour(Some(0x1_000000)), "anything above 0xRRGGBB is refused");
+    }
+
+    #[test]
+    fn mentionable_roles_are_pingable_and_the_rest_need_the_everyone_bit() {
+        let s0 = space(&[(7, Permission::ViewChannel.bit()), (8, ADMIN)], &[(1, true, vec![]), (2, false, vec![7]), (3, false, vec![8])]);
+        let (s, open) = (s0.clone(), { let mut o = s0.clone(); o.roles.iter_mut().find(|(_, r)| r.id == id(7)).map(|(_, r)| r.mentionable = true); o });
+        assert!(!can_mention_role(&s, id(2), id(7)), "a plain member pings no non-mentionable role");
+
+        assert!(can_mention_role(&open, id(2), id(7)), "the same member pings it once it is mentionable");
+        assert!(can_mention_role(&s, id(3), id(7)), "an admin pings any role of the space");
+        assert!(can_mention_role(&s, id(1), id(7)), "so does the owner");
+        assert!(!can_mention_role(&s, id(2), id(99)), "a role the space does not have pings nothing");
     }
 
     #[test]

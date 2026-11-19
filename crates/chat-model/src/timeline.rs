@@ -264,6 +264,7 @@ mod tests {
             thread: None,
             mentions: vec![],
             mentions_everyone: false,
+            mention_roles: vec![],
             at,
             edited_at: None,
         }
