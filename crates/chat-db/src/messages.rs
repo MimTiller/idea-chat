@@ -21,6 +21,9 @@ pub struct NewMessage {
     pub everyone: bool,
     /// Uploads by the author to attach, in order.
     pub attachments: Vec<Id>,
+    /// A space sticker sent in place of a body; the API checks it belongs
+    /// to the channel's space.
+    pub sticker: Option<Id>,
 }
 
 /// A posted message, and whose unread mention counts it raised.
@@ -208,8 +211,8 @@ impl Db {
         let id = crate::new_id();
         let (kind, detail) = kind_parts(&new.kind);
         sqlx::query(
-            "INSERT INTO messages (id, channel_id, author_id, kind, detail, body, reply_to, mentions, mentions_everyone) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+            "INSERT INTO messages (id, channel_id, author_id, kind, detail, body, reply_to, mentions, mentions_everyone, sticker) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(id)
         .bind(new.channel)
@@ -220,6 +223,7 @@ impl Db {
         .bind(new.reply_to)
         .bind(&new.mentions)
         .bind(new.everyone)
+        .bind(new.sticker)
         .execute(&mut *tx)
         .await?;
         for (position, upload) in new.attachments.iter().enumerate() {

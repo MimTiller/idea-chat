@@ -151,6 +151,7 @@ pub async fn join_call(channel: Id, device: Id, user: Auth<Principal>) -> Answer
                     mentions: vec![],
                     everyone: false,
                     attachments: vec![],
+                    sticker: None,
                 })
                 .await
             {

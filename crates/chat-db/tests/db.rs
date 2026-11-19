@@ -44,6 +44,7 @@ fn text(channel: Id, author: Id, body: &str) -> NewMessage {
         mentions: vec![],
         everyone: false,
         attachments: vec![],
+        sticker: None,
     }
 }
 
@@ -470,6 +471,11 @@ async fn emoji_and_stickers_are_made_renamed_counted_and_removed() {
         .iter().find(|c| c.kind == ChannelKind::Text).unwrap().id;
     let posted = db.post(&text(general, ana, "hi")).await.unwrap();
     assert_eq!(posted.message.sticker, None);
+
+    // A sticker-only message: empty body, the space's sticker id carried in.
+    let starred = db.post(&NewMessage { sticker: Some(cat.id), ..text(general, ana, "") }).await.unwrap();
+    assert_eq!(starred.message.sticker, Some(cat.id));
+    assert_eq!(db.message(starred.message.id).await.unwrap().body, "");
 
     // The emoji and sticker uploads are claimed by the space, so the
     // unclaimed-message sweep never reaches them.

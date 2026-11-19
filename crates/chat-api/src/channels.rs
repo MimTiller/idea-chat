@@ -266,6 +266,7 @@ pub async fn create_thread(parent: Id, name: String, starter: Option<Id>, user: 
                     mentions: vec![],
                     everyone: false,
                     attachments: vec![],
+                    sticker: None,
                 })
                 .await
             {

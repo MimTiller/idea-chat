@@ -394,6 +394,7 @@ pub async fn join_space(code: String, user: Auth<Principal>) -> Answer<Id> {
                         mentions: vec![],
                         everyone: false,
                         attachments: vec![],
+                        sticker: None,
                     })
                     .await
                 {
