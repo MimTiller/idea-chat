@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::perms::{self, Access, Permission};
+use crate::expressions::{Emoji, Sticker};
 use crate::{
     Category, Channel, ChannelKind, Device, Id, KeyRequest, Me, Member, Message, Millis, Presence, ReadState,
     Relation, Ring, Role, SealedKey, Space, PermissionSet, Status, User, VoiceState,
@@ -84,6 +85,12 @@ pub enum Event {
     /// The space's baseline of what every member holds restated, so
     /// connections can re-derive what they may see.
     BaselineChanged { space: Id, everyone: PermissionSet },
+    /// The space's whole custom emoji set restated, so every connection shows
+    /// the new :name: pictures.
+    EmojiChanged { space: Id, emoji: Vec<Emoji> },
+    /// The space's whole sticker set restated, so every connection can send
+    /// (and see) the new stickers.
+    StickersChanged { space: Id, stickers: Vec<Sticker> },
     MemberLeft { space: Id, user: Id },
     CategoriesChanged { space: Id, categories: Vec<Category> },
     SpaceOrder { spaces: Vec<Id> },
@@ -223,6 +230,16 @@ impl State {
             Event::BaselineChanged { space, everyone } => {
                 if let Some(s) = self.spaces.get_mut(space) {
                     s.everyone = *everyone;
+                }
+            }
+            Event::EmojiChanged { space, emoji } => {
+                if let Some(s) = self.spaces.get_mut(space) {
+                    s.emoji = emoji.iter().map(|e| (e.id, e.clone())).collect();
+                }
+            }
+            Event::StickersChanged { space, stickers } => {
+                if let Some(s) = self.spaces.get_mut(space) {
+                    s.stickers = stickers.iter().map(|st| (st.id, st.clone())).collect();
                 }
             }
             Event::OwnerChanged { space, owner } => {
@@ -973,6 +990,35 @@ mod tests {
         s.apply(&Event::SpaceUpserted { space: space(101, &[(1, vec![])]), channels: vec![], users: vec![] });
         s.apply(&Event::SpaceOrder { spaces: vec![id(101), id(999)] });
         assert_eq!(s.space_order, vec![id(101), id(100)]);
+    }
+
+    #[test]
+    fn a_restated_expression_set_lands_on_the_space() {
+        use crate::expressions::{Emoji, Sticker};
+
+        let mut s = world();
+        s.apply(
+            &Event::EmojiChanged {
+                space: id(100),
+                emoji: [Emoji { id: id(900), name: "wave".into(), upload: id(901), created_by: id(2), created_at: 0 }]
+                    .into_iter()
+                    .collect::<Vec<Emoji>>(),
+            },
+        );
+        s.apply(
+            &Event::StickersChanged {
+                space: id(100),
+                stickers: [Sticker { id: id(910), name: "cat".into(), description: "a cat".into(), upload: id(911), created_by: id(2), created_at: 0 }]
+                    .into_iter()
+                    .collect::<Vec<Sticker>>(),
+            },
+        );
+        let space = s.spaces[&id(100)].clone();
+        assert_eq!(space.emoji[&id(900)].name, "wave", "the new emoji is on the space");
+        assert_eq!(space.stickers[&id(910)].description, "a cat", "the new sticker is on the space");
+        // Idempotent: restating the same set changes nothing.
+        s.apply(&Event::EmojiChanged { space: id(100), emoji: vec![Emoji { id: id(900), name: "wave".into(), upload: id(901), created_by: id(2), created_at: 0 }] });
+        assert_eq!(s.spaces[&id(100)].emoji.len(), 1, "restating the same set leaves one");
     }
 
     #[test]
