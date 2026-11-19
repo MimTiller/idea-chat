@@ -92,6 +92,10 @@ pub struct Role {
     /// colour. Absent from older snapshots, hence the serde default.
     #[serde(default)]
     pub colour: Option<u32>,
+    /// Whether `@RoleName` pings its holders. Absent from older snapshots,
+    /// hence the serde default.
+    #[serde(default)]
+    pub mentionable: bool,
 }
 
 impl Role {
@@ -356,14 +360,24 @@ pub struct Message {
     /// A sticker of the space sent in place of a body; `None` is plain text.
     #[serde(default)]
     pub sticker: Option<Id>,
+
+    /// Roles the body names. Absent from older snapshots, hence the serde
+    /// default.
+    #[serde(default)]
+    pub mention_roles: Vec<Id>,
     pub at: Millis,
     pub edited_at: Option<Millis>,
 }
 
 impl Message {
-    /// Whether it names `user`, directly or through `@everyone`.
-    pub fn mentions_user(&self, user: Id) -> bool {
+    /// Whether the message names `user`: directly, through `@everyone`, or
+    /// through a role in `roles` — the ids `user` holds at the time the
+    /// message is read, so a role mention reaches whoever holds the role
+    /// then. A conversation passes no roles; a deleted role's id matches
+    /// nobody, which leaves its old mentions as plain text.
+    pub fn mentions_user(&self, user: Id, roles: &[Id]) -> bool {
         self.mentions_everyone || self.mentions.contains(&user)
+            || self.mention_roles.iter().any(|r| roles.contains(r))
     }
 }
 
