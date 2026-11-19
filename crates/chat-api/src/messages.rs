@@ -158,7 +158,7 @@ pub async fn send(
     resolved.mentions.retain(|m| audience.contains(m));
     // A forged role token names nothing the sender can ping.
     resolved.roles.retain(|r| match &space {
-        Some(s) => chat_model::perms::can_mention_role(&s, me, r),
+        Some(s) => chat_model::perms::can_mention_role(&s, me, *r),
         None => false,
     });
     // `@everyone` needs the MentionEveryone permission.
