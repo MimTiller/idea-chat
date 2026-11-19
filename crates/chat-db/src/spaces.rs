@@ -97,12 +97,12 @@ impl Db {
         // acts on other people and on the space that fall short of it. They
         // are ordinary roles afterwards — editable, deletable, renamable —
         // and nobody holds either until the owner hands one out.
-        for (name, permissions, position, colour) in [
-            ("Admin", chat_model::perms::ADMIN, 0, Some(0xE74C3Cu32)),
-            ("Moderator", chat_model::perms::DEFAULT_MODERATOR, 1, Some(0x2ECC71u32)),
+        for (name, permissions, position, colour, mentionable) in [
+            ("Admin", chat_model::perms::ADMIN, 0, Some(0xE74C3Cu32), false),
+            ("Moderator", chat_model::perms::DEFAULT_MODERATOR, 1, Some(0x2ECC71u32), true),
         ] {
             sqlx::query(
-                "INSERT INTO space_roles (space_id, role_id, name, permissions, position, colour) VALUES ($1, $2, $3, $4, $5, $6)",
+                "INSERT INTO space_roles (space_id, role_id, name, permissions, position, colour, mentionable) VALUES ($1, $2, $3, $4, $5, $6, $7)",
             )
                 .bind(id)
                 .bind(new_id())
@@ -110,6 +110,7 @@ impl Db {
                 .bind(permissions as i64)
                 .bind(position)
                 .bind(colour.map(|c| c as i64))
+                .bind(mentionable)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -164,8 +165,8 @@ impl Db {
                 .bind(id)
                 .fetch_all(&self.pool)
                 .await?;
-        let roles: Vec<(Id, String, i64, i32, Option<i64>)> =
-            sqlx::query_as("SELECT role_id, name, permissions, position, colour FROM space_roles WHERE space_id = $1")
+        let roles: Vec<(Id, String, i64, i32, Option<i64>, bool)> =
+            sqlx::query_as("SELECT role_id, name, permissions, position, colour, mentionable FROM space_roles WHERE space_id = $1")
                 .bind(id)
                 .fetch_all(&self.pool)
                 .await?;
@@ -179,8 +180,8 @@ impl Db {
                 .into_iter()
                 .map(|(u, rs, at)| (u, Member { roles: rs, joined_at: millis(at) }))
                 .collect::<BTreeMap<_, _>>(),
-            roles: roles.into_iter().map(|(role_id, name, permissions, position, colour)|
-                    (role_id, Role { id: role_id, name, permissions: permissions as u64, position, colour: colour.map(|c| c as u32) })).collect::<BTreeMap<_, _>>(),
+            roles: roles.into_iter().map(|(role_id, name, permissions, position, colour, mentionable)|
+                    (role_id, Role { id: role_id, name, permissions: permissions as u64, position, colour: colour.map(|c| c as u32), mentionable })).collect::<BTreeMap<_, _>>(),
             categories: categories.into_iter().map(|(id, name, position)| Category { id, name, position }).collect(),
             created_at: millis(row.created_at),
         })
@@ -276,14 +277,14 @@ impl Db {
     }
 
     /// Create a space role; `permissions` is the bitset its holders get.
-    pub async fn create_role(&self, space: Id, name: &str, permissions: u64, colour: Option<u32>) -> Result<Role> {
+    pub async fn create_role(&self, space: Id, name: &str, permissions: u64, colour: Option<u32>, mentionable: bool) -> Result<Role> {
         let position: i32 = sqlx::query_scalar("SELECT coalesce(max(position) + 1, 0) FROM space_roles WHERE space_id = $1")
             .bind(space)
             .fetch_one(&self.pool)
             .await?;
         let id = new_id();
         sqlx::query(
-            "INSERT INTO space_roles (space_id, role_id, name, permissions, position, colour) VALUES ($1, $2, $3, $4, $5, $6)",
+            "INSERT INTO space_roles (space_id, role_id, name, permissions, position, colour, mentionable) VALUES ($1, $2, $3, $4, $5, $6, $7)",
         )
             .bind(space)
             .bind(id)
@@ -291,21 +292,23 @@ impl Db {
             .bind(permissions as i64)
             .bind(position)
             .bind(colour.map(|c| c as i64))
+            .bind(mentionable)
             .execute(&self.pool)
             .await?;
-        Ok(Role { id, name: name.to_string(), permissions, position, colour })
+        Ok(Role { id, name: name.to_string(), permissions, position, colour, mentionable })
     }
 
     /// Rename a role and restate its permissions, in place.
-    pub async fn update_role(&self, space: Id, role: Id, name: &str, permissions: u64, colour: Option<u32>) -> Result<()> {
+    pub async fn update_role(&self, space: Id, role: Id, name: &str, permissions: u64, colour: Option<u32>, mentionable: bool) -> Result<()> {
         sqlx::query(
-            "UPDATE space_roles SET name = $3, permissions = $4, colour = $5 WHERE space_id = $1 AND role_id = $2",
+            "UPDATE space_roles SET name = $3, permissions = $4, colour = $5, mentionable = $6 WHERE space_id = $1 AND role_id = $2",
         )
             .bind(space)
             .bind(role)
             .bind(name)
             .bind(permissions as i64)
             .bind(colour.map(|c| c as i64))
+            .bind(mentionable)
             .execute(&self.pool)
             .await?;
         Ok(())

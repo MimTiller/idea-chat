@@ -43,6 +43,7 @@ fn text(channel: Id, author: Id, body: &str) -> NewMessage {
         reply_to: None,
         mentions: vec![],
         everyone: false,
+        mention_roles: vec![],
         attachments: vec![],
     }
 }
@@ -131,8 +132,10 @@ async fn a_new_space_seeds_admin_and_moderator_roles_that_nobody_holds() {
     assert_ne!(moderator.id, space.id);
     assert_eq!(admin.colour, Some(0xE74C3C), "the seeded Admin is red");
     assert_eq!(moderator.colour, Some(0x2ECC71), "the seeded Moderator is green");
+    assert!(!admin.mentionable, "the seeded Admin answers no role ping");
+    assert!(moderator.mentionable, "the seeded Moderator answers a role ping");
     assert_eq!(db.role_ids(space.id, ana).await.unwrap(), Some(Vec::<Id>::new()), "the owner holds neither");
-    let role = db.create_role(space.id, "Bot", Permission::AddReaction.bit(), None).await.unwrap();
+    let role = db.create_role(space.id, "Bot", Permission::AddReaction.bit(), None, false).await.unwrap();
     assert_eq!(role.position, 2, "a hand-made role still lands at the bottom of the seeded ladder");
 }
 
@@ -186,18 +189,20 @@ async fn roles_are_created_named_and_deleted_with_their_holders() {
     let invite = db.create_invite(space.id, ana, None, None).await.unwrap();
     db.redeem_invite(&invite.code, bob).await.unwrap();
 
-    let role = db.create_role(space.id, "Mod", Permission::ManageMembers.bit(), Some(0x3498DB)).await.unwrap();
+    let role = db.create_role(space.id, "Mod", Permission::ManageMembers.bit(), Some(0x3498DB), true).await.unwrap();
     assert_eq!(role.colour, Some(0x3498DB), "the colour the caller sends is the colour stored");
+    assert!(role.mentionable, "the mentionable flag the caller sends is stored");
     db.set_role_ids(space.id, bob, &[role.id]).await.unwrap();
     assert_eq!(db.role_ids(space.id, bob).await.unwrap(), Some(vec![role.id]));
 
-    db.update_role(space.id, role.id, "Moderator", Permission::ManageMembers.bit() | Permission::ManagePins.bit(), Some(0x9B59B6)).await.unwrap();
+    db.update_role(space.id, role.id, "Moderator", Permission::ManageMembers.bit() | Permission::ManagePins.bit(), Some(0x9B59B6), false).await.unwrap();
     let after_update = db.space(space.id).await.unwrap();
     let updated = after_update.roles.get(&role.id).unwrap();
     assert_eq!(updated.name, "Moderator");
     assert_eq!(updated.permissions, Permission::ManageMembers.bit() | Permission::ManagePins.bit());
     assert_eq!(updated.colour, Some(0x9B59B6), "an update restates the colour exactly as sent");
-    db.update_role(space.id, role.id, "Mod Two", Permission::ManageMembers.bit(), None).await.unwrap();
+    assert!(!updated.mentionable, "an update restates mentionable too");
+    db.update_role(space.id, role.id, "Mod Two", Permission::ManageMembers.bit(), None, true).await.unwrap();
     assert_eq!(db.space(space.id).await.unwrap().roles.get(&role.id).unwrap().colour, None, "None clears it");
 
     db.delete_role(space.id, role.id).await.unwrap();
@@ -241,16 +246,21 @@ async fn posting_counts_mentions_and_reading_clears_them() {
     let everyone = db.post(&NewMessage { everyone: true, ..text(general, ana, "all") }).await.unwrap();
     assert_eq!(everyone.notified, vec![bob]);
 
-    let reads = db.reads_of(bob).await.unwrap();
-    assert_eq!(reads[&general].mentions, 2);
-    assert_eq!(db.reads_of(ana).await.unwrap()[&general].last_read, Some(everyone.message.id));
-    assert_eq!(db.channel(general).await.unwrap().last_message, Some(everyone.message.id));
+    let watcher = db.create_role(space.id, "Watcher", Permission::ViewChannel.bit(), None, true).await.unwrap();
+    db.set_role_ids(space.id, bob, &[watcher.id]).await.unwrap();
+    let roled = db.post(&NewMessage { mention_roles: vec![watcher.id], ..text(general, ana, "ping") }).await.unwrap();
+    assert_eq!(roled.notified, vec![bob], "a role mention reaches the holders");
 
-    db.mark_read(bob, general, everyone.message.id).await.unwrap();
+    let reads = db.reads_of(bob).await.unwrap();
+    assert_eq!(reads[&general].mentions, 3);
+    assert_eq!(db.reads_of(ana).await.unwrap()[&general].last_read, Some(roled.message.id));
+    assert_eq!(db.channel(general).await.unwrap().last_message, Some(roled.message.id));
+
+    db.mark_read(bob, general, roled.message.id).await.unwrap();
     assert_eq!(db.reads_of(bob).await.unwrap()[&general].mentions, 0);
     // Never backwards.
     let back = db.mark_read(bob, general, posted.message.id).await.unwrap();
-    assert_eq!(back, everyone.message.id);
+    assert_eq!(back, roled.message.id);
 }
 
 #[tokio::test]
@@ -288,7 +298,7 @@ async fn edits_reactions_replies_and_deletes() {
     let reply = db.post(&NewMessage { reply_to: Some(first.id), ..text(general, ana, "re") }).await.unwrap().message;
     assert_eq!(reply.reply_to.as_ref().unwrap().excerpt, "first");
 
-    let edited = db.edit_message(first.id, "first!", &[], false).await.unwrap();
+    let edited = db.edit_message(first.id, "first!", &[], false, &[]).await.unwrap();
     assert!(edited.edited_at.is_some());
     assert!(db.react(first.id, ana, "👍", true).await.unwrap());
     assert!(!db.react(first.id, ana, "👍", true).await.unwrap());
