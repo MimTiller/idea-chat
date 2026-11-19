@@ -227,3 +227,33 @@ fn a_role_change_moves_the_subscription() {
     s.apply(&Event::MemberRoles { space: id(100), user: id(2), roles: vec![] });
     assert_eq!(topics_for(&s), before, "the subscription goes back");
 }
+
+// ------------------------------------------------- expression restatements
+
+#[test]
+fn an_emoji_change_reaches_the_spaces_members() {
+    use chat_model::expressions;
+
+    // An open channel keeps its members on the shared space topic, which is
+    // where the verbs publish EmojiChanged / StickersChanged.
+    let sp = space(DEFAULT_EVERYONE, &[], &[(2, vec![])]);
+    let topics = topics_for(&world(sp.clone(), &[channel(200)], &[(1, "Me"), (2, "Ana")]));
+    assert!(topics.contains(&space_topic(100)), "a member of an open channel hears the space topic");
+
+    // The restatement lands on the connected member's world.
+    let mut s = seen_by(world(sp.clone(), &[channel(200)], &[(1, "Me"), (2, "Ana")]), 2);
+    s.apply(&Event::EmojiChanged {
+        space: id(100),
+        emoji: vec![expressions::Emoji { id: id(900), name: "wave".into(), upload: id(901), created_by: id(1), created_at: 0 }],
+    });
+    assert_eq!(s.spaces[&id(100)].emoji[&id(900)].name, "wave", "the new emoji appears on their space");
+    s.apply(&Event::EmojiChanged { space: id(100), emoji: vec![] });
+    assert!(s.spaces[&id(100)].emoji.is_empty(), "a removal restates to empty");
+
+    let mut t = seen_by(world(sp.clone(), &[channel(200)], &[(1, "Me"), (2, "Ana")]), 2);
+    t.apply(&Event::StickersChanged {
+        space: id(100),
+        stickers: vec![expressions::Sticker { id: id(910), name: "cat".into(), description: "a cat".into(), upload: id(911), created_by: id(1), created_at: 0 }],
+    });
+    assert_eq!(t.spaces[&id(100)].stickers[&id(910)].description, "a cat", "the new sticker appears on their space");
+}
