@@ -494,7 +494,7 @@ fn StartThread(#[prop(static)] channel: Id, #[prop(static, default = None)] from
     let ui = s.ui();
     let suggested = from
         .and_then(|m| s.message(channel, m))
-        .map(|m| chat_model::text::plain(&m.body, |u| s.peek(|st| st.display_name(u)), |_| String::new(), 40))
+        .map(|m| chat_model::text::plain(&m.body, |u| s.peek(|st| st.display_name(u)), |_| String::new(), |r| s.peek(|st| st.role_label(r)), 40))
         .unwrap_or_default();
     let name = signal(suggested);
     let form = Form::new();

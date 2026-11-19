@@ -351,6 +351,10 @@ fn runs(inlines: &[Inline], name: &impl Fn(Id) -> String, channel: &impl Fn(Id) 
                 format!("@{}", name(*id)),
                 TextRunStyle { color: Some(tok_primary()), background: Some(tok_primary_soft()), font_weight: Some(FontWeight::Medium), ..Default::default() },
             ),
+            Inline::Role(id) => TextRun::styled(
+                format!("@{}", name(*id)),
+                TextRunStyle { color: Some(tok_primary()), font_weight: Some(FontWeight::Medium), ..Default::default() },
+            ),
             Inline::Channel(id) => TextRun::styled(
                 format!("#{}", channel(*id)),
                 TextRunStyle { color: Some(tok_primary()), background: Some(tok_primary_soft()), font_weight: Some(FontWeight::Medium), ..Default::default() },
@@ -390,7 +394,7 @@ fn links(blocks: &[Block]) -> Vec<String> {
 #[component]
 pub fn Body(#[prop(static)] body: String) -> Element {
     let s = store();
-    let name = |id: Id| s.peek(|st| st.users.get(&id).map(|u| u.display_name.clone()).unwrap_or_else(|| "someone".into()));
+    let name = |id: Id| s.peek(|st| st.users.get(&id).map(|u| u.display_name.clone()).unwrap_or_else(|| { let label = st.role_label(id); if label.is_empty() { "someone".into() } else { label } }));
     let channel = |id: Id| s.peek(|st| st.channels.get(&id).map(|c| c.name.clone()).unwrap_or_else(|| "channel".into()));
     let blocks = text::parse(&body);
     let urls = links(&blocks);
@@ -439,7 +443,9 @@ pub fn MessageRow(#[prop(static)] channel: Id, #[prop(static)] id: Id, #[prop(st
     }
     let me = s.me();
     let author = first.author;
-    let mentioned = me.is_some_and(|m| first.author != m && first.mentions_user(m));
+    let mentioned = me.is_some_and(|m|
+        first.author != m && first.mentions_user(m, &s.read(|st| st.my_roles(channel)))
+    );
     let hovered = signal(false);
     let editing = memo(move || ui.editing.get() == Some(id));
     let focused = memo(move || ui.focus.get() == Some(id));
@@ -540,7 +546,7 @@ fn ReplyQuote(
     let excerpt = if gone {
         "Original message was deleted".to_string()
     } else {
-        text::plain(&reply.excerpt, |u| s.peek(|st| st.display_name(u)), |c| s.peek(|st| st.channels.get(&c).map(|c| c.name.clone()).unwrap_or_default()), 90)
+        text::plain(&reply.excerpt, |u| s.peek(|st| st.display_name(u)), |c| s.peek(|st| st.channels.get(&c).map(|c| c.name.clone()).unwrap_or_default()), |r| s.peek(|st| st.role_label(r)), 90)
     };
     let target = reply.id;
     ui! {
@@ -708,7 +714,7 @@ fn EditMessage(#[prop(static)] id: Id, #[prop(static)] body: String) -> Element 
     let ui = store().ui();
     let s = store();
     // Edit what was typed, not the tokens: mentions back to @handles.
-    let shown = text::plain_editable(&body, |u| s.peek(|st| st.users.get(&u).map(|u| u.handle.clone()).unwrap_or_default()));
+    let shown = text::plain_editable(&body, |u| s.peek(|st| st.users.get(&u).map(|u| u.handle.clone()).unwrap_or_default()), |r| s.peek(|st| st.role_label(r)));
     let draft = signal(shown);
     let busy = signal(false);
     let save = cb(move || {
