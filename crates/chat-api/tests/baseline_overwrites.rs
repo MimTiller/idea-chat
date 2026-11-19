@@ -63,6 +63,8 @@ fn space(roles: &[(u128, u64, i32)], members: &[(u128, Vec<u128>)], everyone: u6
             .collect::<BTreeMap<_, _>>(),
         categories: vec![],
         created_at: 0,
+        emoji: BTreeMap::new(),
+        stickers: BTreeMap::new(),
     }
 }
 

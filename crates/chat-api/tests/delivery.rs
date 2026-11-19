@@ -67,6 +67,8 @@ fn space(everyone: PermissionSet, roles: &[(u128, PermissionSet)], people: &[(u1
             .collect::<BTreeMap<Id, Role>>(),
         categories: vec![],
         created_at: 0,
+        emoji: BTreeMap::new(),
+        stickers: BTreeMap::new(),
     }
 }
 
