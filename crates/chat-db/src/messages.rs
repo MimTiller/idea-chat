@@ -19,6 +19,8 @@ pub struct NewMessage {
     pub reply_to: Option<Id>,
     pub mentions: Vec<Id>,
     pub everyone: bool,
+    /// Roles the body named, already honoured at the sender.
+    pub mention_roles: Vec<Id>,
     /// Uploads by the author to attach, in order.
     pub attachments: Vec<Id>,
     /// A space sticker sent in place of a body; the API checks it belongs
@@ -65,6 +67,8 @@ struct MessageRow {
     mentions: Vec<Id>,
     mentions_everyone: bool,
     sticker: Option<Id>,
+
+    mention_roles: Vec<Id>,
     thread_id: Option<Id>,
     created_at: OffsetDateTime,
     edited_at: Option<OffsetDateTime>,
@@ -72,6 +76,8 @@ struct MessageRow {
 
 const MESSAGE_COLS: &str = "id, channel_id, author_id, kind, detail, body, reply_to, mentions, mentions_everyone, \
                             sticker, thread_id, created_at, edited_at";
+
+                            mention_roles, thread_id, created_at, edited_at";
 
 fn kind_parts(kind: &MessageKind) -> (&'static str, Option<serde_json::Value>) {
     match kind {
@@ -187,6 +193,8 @@ impl Db {
                 mentions: r.mentions,
                 mentions_everyone: r.mentions_everyone,
                 sticker: r.sticker,
+
+                mention_roles: r.mention_roles,
                 at: millis(r.created_at),
                 edited_at: opt_millis(r.edited_at),
             })
@@ -213,6 +221,9 @@ impl Db {
         sqlx::query(
             "INSERT INTO messages (id, channel_id, author_id, kind, detail, body, reply_to, mentions, mentions_everyone, sticker) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+
+            "INSERT INTO messages (id, channel_id, author_id, kind, detail, body, reply_to, mentions, mentions_everyone, \
+             mention_roles) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(id)
         .bind(new.channel)
@@ -224,6 +235,8 @@ impl Db {
         .bind(&new.mentions)
         .bind(new.everyone)
         .bind(new.sticker)
+
+        .bind(&new.mention_roles)
         .execute(&mut *tx)
         .await?;
         for (position, upload) in new.attachments.iter().enumerate() {
@@ -294,7 +307,7 @@ impl Db {
                 .collect::<Vec<Id>>()
         } else {
             // Named people, if they are in the space.
-            sqlx::query_scalar(
+            let named: Vec<Id> = sqlx::query_scalar(
                 "SELECT user_id FROM space_members WHERE space_id = $1 AND user_id = ANY($2) AND user_id <> $3",
             )
             .bind(space)
@@ -302,6 +315,26 @@ impl Db {
             .bind(new.author)
             .fetch_all(&mut *tx)
             .await?
+            ;
+            // Holders of a honoured role, if the message named one: a role
+            // mention reaches whoever holds the role when they read it.
+            let holders: Vec<Id> = if new.mention_roles.is_empty() {
+                Vec::new()
+            } else {
+                sqlx::query_scalar(
+                    "SELECT user_id FROM space_members WHERE space_id = $1 AND user_id <> $2 \
+                     AND $3::uuid[] && role_ids",
+                )
+                .bind(space)
+                .bind(new.author)
+                .bind(&new.mention_roles)
+                .fetch_all(&mut *tx)
+                .await?
+            };
+            let mut all: Vec<Id> = named.iter().chain(holders.iter()).map(|u| *u).collect();
+            all.sort();
+            all.dedup();
+            all
         };
         if !notified.is_empty() {
             sqlx::query(
@@ -384,14 +417,15 @@ impl Db {
         Ok(Page { messages: before.messages, older: before.older, present: after.present })
     }
 
-    pub async fn edit_message(&self, id: Id, body: &str, mentions: &[Id], everyone: bool) -> Result<Message> {
+    pub async fn edit_message(&self, id: Id, body: &str, mentions: &[Id], everyone: bool, mention_roles: &[Id]) -> Result<Message> {
         sqlx::query(
-            "UPDATE messages SET body = $2, mentions = $3, mentions_everyone = $4, edited_at = now() WHERE id = $1",
+            "UPDATE messages SET body = $2, mentions = $3, mentions_everyone = $4, mention_roles = $5, edited_at = now() WHERE id = $1",
         )
         .bind(id)
         .bind(body)
         .bind(mentions)
         .bind(everyone)
+        .bind(mention_roles)
         .execute(&self.pool)
         .await?;
         self.message(id).await
