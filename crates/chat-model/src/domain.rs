@@ -407,6 +407,27 @@ pub struct Ring {
     pub ringing: Vec<Id>,
 }
 
+/// What one notification row's `scope` column says: the target is a space, or
+/// a channel inside one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Scope {
+    Space,
+    Channel,
+}
+
+impl Scope {
+    pub fn db_str(self) -> &'static str {
+        match self {
+            Scope::Space => "space",
+            Scope::Channel => "channel",
+        }
+    }
+
+    pub fn from_db(s: &str) -> Option<Self> {
+        [Scope::Space, Scope::Channel].into_iter().find(|l| l.db_str() == s)
+    }
+}
+
 /// What one target's notification row says in the db: `all` shows everything,
 /// `mentions` hides the unread dot but keeps the mention badge, `nothing`
 /// hides both.
@@ -439,6 +460,8 @@ pub const MUTED_UNTIL_TURNED_OFF: i64 = -1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotificationSetting {
+    /// Whether `target` is a space or a channel, as the db's `scope` column.
+    pub scope: Scope,
     pub target: Id,
     pub level: Option<Level>,
     pub muted_until: Option<i64>,

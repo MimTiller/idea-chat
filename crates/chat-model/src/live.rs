@@ -772,6 +772,7 @@ pub fn topics_for(state: &State) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::Scope;
     use crate::MessageKind;
     use crate::domain::MUTED_UNTIL_TURNED_OFF;
 
@@ -951,14 +952,14 @@ mod tests {
         s.apply(&Event::MessageCreated { message: m });
         // Level `Mentions`: no unread dot, but the mention badge keeps.
         s.apply(&Event::NotificationSettingsChanged {
-            settings: vec![NotificationSetting { target: id(200), level: Some(Level::Mentions), muted_until: None }],
+            settings: vec![NotificationSetting { scope: Scope::Channel, target: id(200), level: Some(Level::Mentions), muted_until: None }],
         });
         assert_eq!(s.notification_shows(id(200), 0), (false, true), "mentions shows no dot but keeps badges");
         assert!(!s.space_badge(id(100), 0).unread);
         assert_eq!(s.space_badge(id(100), 0).mentions, 1);
         // Level `Nothing`: neither shows.
         s.apply(&Event::NotificationSettingsChanged {
-            settings: vec![NotificationSetting { target: id(200), level: Some(Level::Nothing), muted_until: None }],
+            settings: vec![NotificationSetting { scope: Scope::Channel, target: id(200), level: Some(Level::Nothing), muted_until: None }],
         });
         assert_eq!(s.notification_shows(id(200), 0), (false, false), "nothing shows neither");
         assert_eq!(s.space_badge(id(100), 0), Badge::default());
@@ -972,7 +973,7 @@ mod tests {
         s.apply(&Event::MessageCreated { message: m });
         // A mute carried by `muted_until` rather than the plain flag.
         s.apply(&Event::NotificationSettingsChanged {
-            settings: vec![NotificationSetting { target: id(200), level: None, muted_until: Some(MUTED_UNTIL_TURNED_OFF) }],
+            settings: vec![NotificationSetting { scope: Scope::Channel, target: id(200), level: None, muted_until: Some(MUTED_UNTIL_TURNED_OFF) }],
         });
         assert_eq!(s.notification_shows(id(200), 0), (false, true), "a no-end mute hides the dot, keeps mentions");
         assert_eq!(s.space_badge(id(100), 0).mentions, 1);
@@ -982,7 +983,7 @@ mod tests {
     fn a_timed_mute_expires_at_the_boundary() {
         let mut s = world();
         s.apply(&Event::NotificationSettingsChanged {
-            settings: vec![NotificationSetting { target: id(200), level: None, muted_until: Some(1000) }],
+            settings: vec![NotificationSetting { scope: Scope::Channel, target: id(200), level: None, muted_until: Some(1000) }],
         });
         assert_eq!(s.notification_shows(id(200), 999), (false, true), "still in force just before the deadline");
         assert_eq!(s.notification_shows(id(200), 1000), (true, true), "at the deadline the mute has expired");
@@ -998,8 +999,8 @@ mod tests {
         // The space asks for `Nothing`; the channel asks back for `All`.
         s.apply(&Event::NotificationSettingsChanged {
             settings: vec![
-                NotificationSetting { target: id(100), level: Some(Level::Nothing), muted_until: None },
-                NotificationSetting { target: id(200), level: Some(Level::All), muted_until: None },
+                NotificationSetting { scope: Scope::Space, target: id(100), level: Some(Level::Nothing), muted_until: None },
+                NotificationSetting { scope: Scope::Channel, target: id(200), level: Some(Level::All), muted_until: None },
             ],
         });
         assert_eq!(s.notification_shows(id(200), 0), (true, true), "the channel's own level wins");
