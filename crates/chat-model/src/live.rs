@@ -21,9 +21,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::perms::{self, Access, Permission};
 use crate::expressions::{Emoji, Sticker};
+
+use crate::domain::is_muted;
 use crate::{
-    Category, Channel, ChannelKind, Device, Id, KeyRequest, Me, Member, Message, Millis, Presence, ReadState,
-    Relation, Ring, Role, SealedKey, Space, PermissionSet, Status, User, VoiceState,
+    Category, Channel, ChannelKind, Device, Id, KeyRequest, Me, Member, Message, Millis,
+    NotificationSetting, Level, Presence, ReadState, Relation, Ring, Role, SealedKey, Space,
+    PermissionSet, Status, User, VoiceState,
 };
 
 /// Everything one viewer's client draws from, apart from message history.
@@ -52,6 +55,8 @@ pub struct State {
     pub rings: BTreeMap<Id, Ring>,
     /// Spaces and channels the viewer has muted.
     pub muted: BTreeSet<Id>,
+    /// The viewer's own notification settings, by target.
+    pub settings: BTreeMap<Id, NotificationSetting>,
     /// The viewer's own devices.
     pub devices: Vec<Device>,
 }
@@ -125,6 +130,9 @@ pub enum Event {
     KeyDelivered { key: SealedKey },
 
     MutedChanged { target: Id, muted: bool },
+    /// The viewer's own notification settings restated whole: their level
+    /// and mute expiry for each space or channel they set one for.
+    NotificationSettingsChanged { settings: Vec<NotificationSetting> },
     DevicesChanged { devices: Vec<Device> },
 
     /// Server-internal: the viewer's visible world changed shape (a channel's
@@ -343,6 +351,12 @@ impl State {
                     self.muted.remove(target);
                 }
             }
+            Event::NotificationSettingsChanged { settings } => {
+                self.settings = settings
+                    .iter()
+                    .map(|s| (s.target, s.clone()))
+                    .collect::<BTreeMap<Id, NotificationSetting>>();
+            }
             Event::DevicesChanged { devices } => self.devices = devices.clone(),
         }
     }
@@ -444,47 +458,78 @@ impl State {
             .unwrap_or_default()
     }
 
-    /// Whether a channel has messages the viewer has not read.
-    pub fn unread(&self, channel: Id) -> bool {
+    /// The one place the notification rule lives: what a space or channel may
+    /// show at `now_ms`, as `(unread dot, mention badge)`. It folds the level
+    /// and the mute together. The level is the target's own setting, else — for
+    /// a channel — its space's setting, else `All`. A mute is in force while the
+    /// plain `muted` flag is set or the setting's `muted_until` is still in the
+    /// future (an expired timed mute counts as not muted). Under `Nothing`
+    /// neither mark shows; under `Mentions` the unread dot never shows but
+    /// mentions always do; under `All` a mute in force hides the unread dot but
+    /// keeps the mention badge.
+    pub fn notification_shows(&self, target: Id, now_ms: Millis) -> (bool, bool) {
+        let own = self.settings.get(&target).and_then(|s| s.level);
+        let inherited = self.channels.get(&target)
+            .and_then(|c| c.space)
+            .and_then(|space| self.settings.get(&space).and_then(|s| s.level));
+        let level = own.or_else(|| inherited).unwrap_or(Level::All);
+        let muted = self.muted.contains(&target)
+            || self.settings.get(&target).is_some_and(|s| is_muted(s.muted_until, now_ms));
+        match level {
+            Level::Nothing => (false, false),
+            Level::Mentions => (false, true),
+            Level::All => (!muted, true),
+        }
+    }
+
+    /// Whether a channel has messages the viewer has not read, once their
+    /// notification level and mute are applied at `now_ms`.
+    pub fn unread(&self, channel: Id, now_ms: Millis) -> bool {
         let Some(c) = self.channels.get(&channel) else { return false };
         if !c.kind.has_messages() || !self.access(channel).can_read() {
+            return false;
+        }
+        if !self.notification_shows(channel, now_ms).0 {
             return false;
         }
         let last_read = self.reads.get(&channel).and_then(|r| r.last_read);
         c.last_message.is_some_and(|last| last_read.is_none_or(|read| last > read))
     }
 
-    /// Messages naming the viewer since they last read a channel.
-    pub fn mentions(&self, channel: Id) -> u32 {
-        if !self.access(channel).can_read() {
+    /// Messages naming the viewer since they last read a channel, unless their
+    /// level hides the mention badge at `now_ms`.
+    pub fn mentions(&self, channel: Id, now_ms: Millis) -> u32 {
+        if !self.access(channel).can_read() || !self.notification_shows(channel, now_ms).1 {
             return 0;
         }
         self.reads.get(&channel).map_or(0, |r| r.mentions)
     }
 
-    /// A space's switcher badge: whether anything in it is unread (muted
-    /// channels and a muted space aside), and how many mentions it holds
-    /// (muting never hides a mention).
-    pub fn space_badge(&self, space: Id) -> Badge {
-        let space_muted = self.muted.contains(&space);
+    /// A space's switcher badge at `now_ms`: whether anything in it is unread
+    /// (a muted space, a `Nothing`/`Mentions` level, and a mute in force aside),
+    /// and how many mentions it holds (a `Nothing` level hides a channel's).
+    pub fn space_badge(&self, space: Id, now_ms: Millis) -> Badge {
         let mut badge = Badge::default();
         for c in self.channels.values().filter(|c| c.space == Some(space)) {
-            if !space_muted && !self.muted.contains(&c.id) && self.unread(c.id) {
+            if self.unread(c.id, now_ms) {
                 badge.unread = true;
             }
-            badge.mentions += self.mentions(c.id);
+            badge.mentions += self.mentions(c.id, now_ms);
         }
         badge
     }
 
-    /// Home's badge: unread direct messages, plus friend requests waiting.
-    pub fn home_badge(&self) -> Badge {
+    /// Home's badge at `now_ms`: unread direct messages, plus friend requests
+    /// waiting. Muting a conversation hides its dot; a `Nothing` level hides its
+    /// mentions too.
+    pub fn home_badge(&self, now_ms: Millis) -> Badge {
         let mut badge = Badge::default();
         for c in self.conversations() {
-            badge.mentions += self.mentions(c.id);
+            badge.mentions += self.mentions(c.id, now_ms);
         }
         badge.mentions += self.relations.values().filter(|r| **r == Relation::Incoming).count() as u32;
-        badge.unread = badge.mentions > 0;
+        badge.unread = self.conversations().iter().any(|c| self.unread(c.id, now_ms))
+            || self.relations.values().any(|r| *r == Relation::Incoming);
         badge
     }
 
@@ -728,6 +773,7 @@ pub fn topics_for(state: &State) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::MessageKind;
+    use crate::domain::MUTED_UNTIL_TURNED_OFF;
 
     fn id(n: u128) -> Id {
         Id::from_u128(n)
@@ -823,10 +869,10 @@ mod tests {
     fn a_message_from_someone_else_is_unread_until_read() {
         let mut s = world();
         s.apply(&Event::MessageCreated { message: message(1000, 200, 2) });
-        assert!(s.unread(id(200)));
-        assert_eq!(s.mentions(id(200)), 0, "no mention, no count");
+        assert!(s.unread(id(200), 0));
+        assert_eq!(s.mentions(id(200), 0), 0, "no mention, no count");
         s.apply(&Event::Read { channel: id(200), last_read: id(1000) });
-        assert!(!s.unread(id(200)));
+        assert!(!s.unread(id(200), 0));
     }
 
     #[test]
@@ -835,10 +881,10 @@ mod tests {
         let mut m = message(1000, 200, 2);
         m.mentions = vec![id(1)];
         s.apply(&Event::MessageCreated { message: m });
-        assert_eq!(s.mentions(id(200)), 1);
-        assert_eq!(s.space_badge(id(100)), Badge { unread: true, mentions: 1 });
+        assert_eq!(s.mentions(id(200), 0), 1);
+        assert_eq!(s.space_badge(id(100), 0), Badge { unread: true, mentions: 1 });
         s.apply(&Event::Read { channel: id(200), last_read: id(1000) });
-        assert_eq!(s.space_badge(id(100)), Badge::default());
+        assert_eq!(s.space_badge(id(100), 0), Badge::default());
     }
 
     #[test]
@@ -846,8 +892,8 @@ mod tests {
         let mut s = world();
         s.apply(&Event::MessageCreated { message: message(1000, 300, 2) });
         s.apply(&Event::MessageCreated { message: message(1001, 300, 2) });
-        assert_eq!(s.mentions(id(300)), 2);
-        assert_eq!(s.home_badge().mentions, 2);
+        assert_eq!(s.mentions(id(300), 0), 2);
+        assert_eq!(s.home_badge(0).mentions, 2);
     }
 
     /// The case the idempotence rule exists for: a resnapshot overlapping an
@@ -858,7 +904,7 @@ mod tests {
         let m = message(1000, 300, 2);
         s.apply(&Event::MessageCreated { message: m.clone() });
         s.apply(&Event::MessageCreated { message: m });
-        assert_eq!(s.mentions(id(300)), 1);
+        assert_eq!(s.mentions(id(300), 0), 1);
         assert_eq!(s.channels[&id(300)].message_count, 1);
     }
 
@@ -867,8 +913,8 @@ mod tests {
         let mut s = world();
         s.apply(&Event::MessageCreated { message: message(1000, 300, 2) });
         s.apply(&Event::MessageCreated { message: message(1001, 300, 1) });
-        assert!(!s.unread(id(300)));
-        assert_eq!(s.mentions(id(300)), 0);
+        assert!(!s.unread(id(300), 0));
+        assert_eq!(s.mentions(id(300), 0), 0);
     }
 
     /// Two devices: the slower one's older read marker must not mark unread
@@ -880,7 +926,7 @@ mod tests {
         s.apply(&Event::MessageCreated { message: message(1001, 200, 2) });
         s.apply(&Event::Read { channel: id(200), last_read: id(1001) });
         s.apply(&Event::Read { channel: id(200), last_read: id(1000) });
-        assert!(!s.unread(id(200)));
+        assert!(!s.unread(id(200), 0));
     }
 
     #[test]
@@ -889,11 +935,76 @@ mod tests {
         s.apply(&Event::MutedChanged { target: id(200), muted: true });
         let mut m = message(1000, 200, 2);
         s.apply(&Event::MessageCreated { message: m.clone() });
-        assert!(!s.space_badge(id(100)).unread);
+        assert!(!s.space_badge(id(100), 0).unread);
         m.id = id(1001);
         m.mentions = vec![id(1)];
         s.apply(&Event::MessageCreated { message: m });
-        assert_eq!(s.space_badge(id(100)).mentions, 1);
+        assert_eq!(s.space_badge(id(100), 0).mentions, 1);
+    }
+
+    #[test]
+    fn the_rule_applies_each_level() {
+        let mut s = world();
+        // A plain unread mention-bearing message first.
+        let mut m = message(1000, 200, 2);
+        m.mentions = vec![id(1)];
+        s.apply(&Event::MessageCreated { message: m });
+        // Level `Mentions`: no unread dot, but the mention badge keeps.
+        s.apply(&Event::NotificationSettingsChanged {
+            settings: vec![NotificationSetting { target: id(200), level: Some(Level::Mentions), muted_until: None }],
+        });
+        assert_eq!(s.notification_shows(id(200), 0), (false, true), "mentions shows no dot but keeps badges");
+        assert!(!s.space_badge(id(100), 0).unread);
+        assert_eq!(s.space_badge(id(100), 0).mentions, 1);
+        // Level `Nothing`: neither shows.
+        s.apply(&Event::NotificationSettingsChanged {
+            settings: vec![NotificationSetting { target: id(200), level: Some(Level::Nothing), muted_until: None }],
+        });
+        assert_eq!(s.notification_shows(id(200), 0), (false, false), "nothing shows neither");
+        assert_eq!(s.space_badge(id(100), 0), Badge::default());
+    }
+
+    #[test]
+    fn a_mute_in_force_hides_the_dot_and_keeps_the_mentions() {
+        let mut s = world();
+        let mut m = message(1000, 200, 2);
+        m.mentions = vec![id(1)];
+        s.apply(&Event::MessageCreated { message: m });
+        // A mute carried by `muted_until` rather than the plain flag.
+        s.apply(&Event::NotificationSettingsChanged {
+            settings: vec![NotificationSetting { target: id(200), level: None, muted_until: Some(MUTED_UNTIL_TURNED_OFF) }],
+        });
+        assert_eq!(s.notification_shows(id(200), 0), (false, true), "a no-end mute hides the dot, keeps mentions");
+        assert_eq!(s.space_badge(id(100), 0).mentions, 1);
+    }
+
+    #[test]
+    fn a_timed_mute_expires_at_the_boundary() {
+        let mut s = world();
+        s.apply(&Event::NotificationSettingsChanged {
+            settings: vec![NotificationSetting { target: id(200), level: None, muted_until: Some(1000) }],
+        });
+        assert_eq!(s.notification_shows(id(200), 999), (false, true), "still in force just before the deadline");
+        assert_eq!(s.notification_shows(id(200), 1000), (true, true), "at the deadline the mute has expired");
+        assert_eq!(s.notification_shows(id(200), 1001), (true, true), "past it, counting resumes");
+    }
+
+    #[test]
+    fn a_channel_level_overrides_its_space() {
+        let mut s = world();
+        let mut m = message(1000, 200, 2);
+        m.mentions = vec![id(1)];
+        s.apply(&Event::MessageCreated { message: m });
+        // The space asks for `Nothing`; the channel asks back for `All`.
+        s.apply(&Event::NotificationSettingsChanged {
+            settings: vec![
+                NotificationSetting { target: id(100), level: Some(Level::Nothing), muted_until: None },
+                NotificationSetting { target: id(200), level: Some(Level::All), muted_until: None },
+            ],
+        });
+        assert_eq!(s.notification_shows(id(200), 0), (true, true), "the channel's own level wins");
+        assert_eq!(s.notification_shows(id(100), 0), (false, false), "the space's level applies to itself");
+        assert!(s.space_badge(id(100), 0).unread, "the channel shows its unread again");
     }
 
     #[test]
@@ -908,7 +1019,7 @@ mod tests {
         });
         s.apply(&Event::MessageCreated { message: message(1000, 200, 1) });
         assert_eq!(s.access(id(200)), Access::Locked);
-        assert!(!s.unread(id(200)));
+        assert!(!s.unread(id(200), 0));
     }
 
     #[test]

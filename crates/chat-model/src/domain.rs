@@ -407,6 +407,52 @@ pub struct Ring {
     pub ringing: Vec<Id>,
 }
 
+/// What one target's notification row says in the db: `all` shows everything,
+/// `mentions` hides the unread dot but keeps the mention badge, `nothing`
+/// hides both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Level {
+    All,
+    Mentions,
+    Nothing,
+}
+
+impl Level {
+    pub fn db_str(self) -> &'static str {
+        match self {
+            Level::All => "all",
+            Level::Mentions => "mentions",
+            Level::Nothing => "nothing",
+        }
+    }
+
+    pub fn from_db(s: &str) -> Option<Self> {
+        [Level::All, Level::Mentions, Level::Nothing].into_iter().find(|l| l.db_str() == s)
+    }
+}
+
+/// One space's or channel's notification setting for one person. `level` of
+/// `None` inherits: a channel from its space, a space the default of showing
+/// everything. `muted_until` is `None` (not muted), [`MUTED_UNTIL_TURNED_OFF`]
+/// (a mute with no end), or an epoch-ms deadline.
+pub const MUTED_UNTIL_TURNED_OFF: i64 = -1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationSetting {
+    pub target: Id,
+    pub level: Option<Level>,
+    pub muted_until: Option<i64>,
+}
+
+/// Whether a mute is in force at `now_ms`.
+pub fn is_muted(muted_until: Option<i64>, now_ms: Millis) -> bool {
+    match muted_until {
+        Some(MUTED_UNTIL_TURNED_OFF) => true,
+        Some(until) => until > now_ms,
+        None => false,
+    }
+}
+
 /// One of an account's devices, and the key calls are sealed to it with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
