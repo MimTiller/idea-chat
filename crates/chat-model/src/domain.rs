@@ -476,6 +476,12 @@ pub fn is_muted(muted_until: Option<i64>, now_ms: Millis) -> bool {
     }
 }
 
+/// A storable mute end: `None`, the no-end marker, or a positive deadline. A
+/// zero or negative one would never read as muted, so the verb refuses it.
+pub fn mute_end_ok(muted_until: Option<i64>) -> bool {
+    !matches!(muted_until, Some(t) if t != MUTED_UNTIL_TURNED_OFF && t <= 0)
+}
+
 /// One of an account's devices, and the key calls are sealed to it with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
