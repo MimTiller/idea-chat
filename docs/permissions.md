@@ -121,9 +121,9 @@ may touch:
 
 ## Permissions
 
-All 24 functional permissions plus the `IsAdmin` tag, counted from
-`chat-model/src/perms.rs::Permission` and its `bit()` numbering (bits 0–23,
-plus 63; `perms.rs::ALL` = `(1 << 63) | ((1 << 24) - 1)` covers exactly the
+All 25 functional permissions plus the `IsAdmin` tag, counted from
+`chat-model/src/perms.rs::Permission` and its `bit()` numbering (bits 0–24,
+plus 63; `perms.rs::ALL` = `(1 << 63) | ((1 << 25) - 1)` covers exactly the
 defined bits, asserted by `the_new_bits_stay_inside_all` in `perms.rs` and
 again in `roles_verbs.rs`). "Checked where" lists call sites **outside
 `perms.rs` itself**; a hit that is only data (a test creating a role with a
@@ -157,6 +157,7 @@ cut them; space-wide acts consult the plain effective set via `can`/`can_act`.
 | ManageSpaceSettings | 21 | space | Change the space's own settings. | Directly: `chat-api/src/spaces.rs::body::manager` (~39) → `rename_space` (~66), `create_category` (~383), `rename_category` (~396), `delete_category` (~410); `chat-api/src/files.rs::set_space_icon` (~132); `chat-api/src/channels.rs::order_channels` (~153). Through `perms.rs::manages` (~245): `update_channel` (~104), `delete_channel` (~135), `set_archived` (~227), `rename_channel` thread arm (~251). Client: `crates/chat/src/store.rs::manages_space` (~234) over `live.rs::my_permissions` (~383), used by the settings modal (`settings.rs` ~152) and space nav (`nav.rs` ~570). |
 | BanMembers | 22 | space | Ban members so they cannot rejoin until unbanned; lift a ban. | `perms.rs::can_ban` (~327, `can_moderate` + the bit) → `chat-api/src/spaces.rs::ban_member` (~139). Unban needs only the bit, not reach — the banned person is out of the space so rank cannot be compared (`spaces.rs::unban_member` ~158 checks `can(…, BanMembers)` directly; the comment says why). The ban's effect is enforced in the db: `chat-db/src/spaces.rs::redeem_invite` (~564) refuses a banned joiner ("That invite no longer works for you."). Test `ban_timeout_and_unban_gate_on_their_new_bits_at_rank` + `the_owner_is_never_a_ban_or_timeout_target`. |
 | TimeoutMembers | 23 | space | Time members out so they cannot send or speak until it expires. | `perms.rs::can_timeout` (~335, member + not owner + bit + reach) → `chat-api/src/spaces.rs::timeout_member` (~173). The effect is enforced where the acts are: `chat-api/src/messages.rs::send` (~103, `chat-db/src/spaces.rs::timed_out` ~352) and `chat-api/src/calls.rs::update_call` (~222). `set_timeout` (~363) stores `timeout_ends`; expiry is by comparison with `now()`. |
+| ManageExpressions | 24 | space | Create, rename and delete the space's custom emoji and stickers. | `perms.rs::can` with `Permission::ManageExpressions` at `chat-api/src/spaces.rs::create_emoji` (~350), `rename_emoji` (~377), `delete_emoji`, `create_sticker` (~427), `rename_sticker`, `delete_sticker` — all six gate directly. Listing (`list_emoji`, `list_stickers`) needs only membership. The seeded Admin gets it via `expand(IsAdmin)`; the seeded Moderator and the `@everyone` baseline do not. Tests `the_new_bits_stay_inside_all` (perms.rs) and the verb matrix in `roles_verbs.rs`. |
 | IsAdmin | 63 | space | Every permission. | Enforced as expansion: `perms.rs::expand` inside `effective` and `union`, so the tag grants all 24 functional bits; `at_channel` (~239) exempts any set covering `ADMIN` from channel overwrites ("a channel cannot demote them"). Read as a presentation fact in `chat-model/src/live.rs::roster` (~561/566), which sorts members whose set covers the tag first. |
 
 One caveat on "where": topic **delivery** consults the space-wide
