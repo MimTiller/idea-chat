@@ -33,6 +33,7 @@ pub mod live;
 pub mod messages;
 pub mod people;
 pub mod spaces;
+pub mod gifs;
 
 #[cfg(feature = "server")]
 pub mod srv;

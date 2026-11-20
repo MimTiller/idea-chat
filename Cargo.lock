@@ -1643,6 +1643,7 @@ dependencies = [
  "idea-state",
  "pubsub",
  "redis 0.27.6",
+ "reqwest",
  "serde",
  "serde_json",
  "server",
