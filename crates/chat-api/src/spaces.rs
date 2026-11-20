@@ -414,7 +414,7 @@ pub async fn create_sticker(space: Id, name: String, description: String, upload
     use chat_model::expressions;
     use chat_model::perms;
 
-    use crate::srv::{app, db, forbidden, invalid, me};
+    use crate::srv::{app, db, forbidden, invalid};
     let (me, s) = body::member(&user.0, space).await?;
     if !perms::can(&s, me, Permission::ManageExpressions) {
         return Err(forbidden("Only those who manage stickers can add one."));
