@@ -31,6 +31,7 @@ pub mod channels;
 pub mod files;
 pub mod live;
 pub mod messages;
+pub mod notifications;
 pub mod people;
 pub mod spaces;
 pub mod gifs;

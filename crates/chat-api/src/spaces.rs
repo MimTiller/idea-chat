@@ -10,7 +10,7 @@ use server_kit::Auth;
 use crate::{Answer, Principal};
 
 #[cfg(feature = "server")]
-mod body {
+pub(crate) mod body {
     use chat_model::perms::{self, Permission};
     use chat_model::{Id, Role, Space};
 
