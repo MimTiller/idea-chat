@@ -10,7 +10,9 @@
 //!
 //! Everything is configured from the environment; see [`Config`]. With no
 //! environment at all it runs against `deploy/chat/docker-compose.yml`'s
-//! services on localhost and prints emails instead of sending them.
+//! services on localhost and prints emails instead of sending them. GIF
+//! search reads its own `CHAT_GIPHY_KEY` / `CHAT_GIPHY_KEY_FILE` (see
+//! `chat_api`'s `gifs` module); with neither set, search is not configured.
 
 mod mail;
 
