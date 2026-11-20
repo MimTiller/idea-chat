@@ -59,6 +59,12 @@ impl Db {
             state.rings.insert(r.channel, r);
         }
         state.muted = self.mutes_of(viewer).await?.into_iter().collect();
+        state.settings = self
+            .notification_settings(viewer, None)
+            .await?
+            .into_iter()
+            .map(|s| (s.target, s))
+            .collect();
         state.devices = self.devices(viewer).await?;
         Ok(state)
     }

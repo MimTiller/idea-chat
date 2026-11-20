@@ -3,7 +3,7 @@
 
 use chat_db::{CodeCheck, CodePurpose, Db, InviteOutcome, NewAccount, NewMessage, NewSpace};
 use chat_model::perms::Permission;
-use chat_model::{ChannelKind, Id, MessageKind, Presence, Relation, Status};
+use chat_model::{ChannelKind, Id, Level, MessageKind, NotificationSetting, Presence, Relation, Scope, Status, MUTED_UNTIL_TURNED_OFF};
 use sqlx::Connection;
 
 async fn db() -> Option<Db> {
@@ -526,4 +526,36 @@ async fn emoji_and_stickers_are_made_renamed_counted_and_removed() {
     assert_eq!(db.sticker_count(space.id).await.unwrap(), 0);
     // The old message still reads back, with its sticker dropped.
     assert_eq!(db.message(posted.message.id).await.unwrap().body, "hi");
+}
+
+#[tokio::test]
+async fn notification_settings_store_replace_and_clear() {
+    let Some(db) = db().await else { return };
+    let ana = account(&db, "ana").await;
+    let bob = account(&db, "bob").await;
+    let (space, channels) = db.create_space(&NewSpace { name: "Club".into(), owner: ana }).await.unwrap();
+    let general = channels.iter().find(|c| c.name == "general").unwrap();
+
+    let space_row = NotificationSetting { scope: Scope::Space, target: space.id, level: Some(Level::Mentions), muted_until: None };
+    let channel_row = NotificationSetting { scope: Scope::Channel, target: general.id, level: None, muted_until: Some(MUTED_UNTIL_TURNED_OFF) };
+    db.set_notification_setting(ana, &space_row).await.unwrap();
+    db.set_notification_setting(ana, &channel_row).await.unwrap();
+    assert_eq!(db.notification_settings(ana, Some(space.id)).await.unwrap(), vec![channel_row.clone(), space_row.clone()], "channel rows sort before space rows");
+    assert_eq!(db.notification_settings(ana, None).await.unwrap().len(), 2);
+    assert!(db.notification_settings(bob, None).await.unwrap().is_empty(), "settings are per person");
+
+    // Replacing, then clearing with an empty setting.
+    let replaced = NotificationSetting { scope: Scope::Channel, target: general.id, level: Some(Level::Nothing), muted_until: None };
+    db.set_notification_setting(ana, &replaced).await.unwrap();
+    let cleared = NotificationSetting { scope: Scope::Space, target: space.id, level: None, muted_until: None };
+    db.set_notification_setting(ana, &cleared).await.unwrap();
+    assert_eq!(db.notification_settings(ana, Some(space.id)).await.unwrap(), vec![replaced]);
+
+    // The snapshot carries them, so a connection sees its own settings.
+    let s = db.snapshot(ana).await.unwrap();
+    assert_eq!(s.settings.get(&general.id), Some(&replaced));
+    assert!(s.settings.get(&space.id).is_none(), "the cleared row is gone");
+    // The plain mute keeps working beside them.
+    db.set_muted(ana, space.id, true).await.unwrap();
+    assert_eq!(db.mutes_of(ana).await.unwrap(), vec![space.id]);
 }

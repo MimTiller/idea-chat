@@ -1,6 +1,6 @@
 //! How people relate: friend requests, friendships, blocks.
 
-use chat_model::{Id, Relation};
+use chat_model::{Id, NotificationSetting, Level, Relation, Scope};
 
 use crate::{relation_of, relation_text, Db, Error, Result};
 
@@ -175,5 +175,62 @@ impl Db {
             .bind(user)
             .fetch_all(&self.pool)
             .await?)
+    }
+
+    /// The person's notification settings: all of them, or those of one
+    /// space — its own row and its channels' rows.
+    pub async fn notification_settings(&self, user: Id, space: Option<Id>) -> Result<Vec<NotificationSetting>> {
+        const SELECT: &str = "SELECT scope, target_id, level, muted_until FROM notification_settings WHERE user_id = $1";
+        let rows: Vec<(String, Id, Option<String>, Option<i64>)> = match space {
+            None => sqlx::query_as(&format!("{SELECT} ORDER BY scope, target_id"))
+                .bind(user)
+                .fetch_all(&self.pool)
+                .await?,
+            Some(space) => sqlx::query_as(&format!(
+                "{SELECT} AND (target_id = $2 OR target_id IN (SELECT id FROM channels WHERE space_id = $2)) \
+                 ORDER BY scope, target_id",
+            ))
+            .bind(user)
+            .bind(space)
+            .fetch_all(&self.pool)
+            .await?,
+        };
+        Ok(rows
+            .into_iter()
+            .filter_map(|(scope, target, level, until)| {
+                Some(NotificationSetting {
+                    scope: Scope::from_db(&scope)?,
+                    target,
+                    level: level.as_deref().and_then(Level::from_db),
+                    muted_until: until,
+                })
+            })
+            .collect())
+    }
+
+    /// Store (or, with no level and no mute, clear) one of the person's
+    /// settings.
+    pub async fn set_notification_setting(&self, user: Id, setting: &NotificationSetting) -> Result<()> {
+        if setting.level.is_none() && setting.muted_until.is_none() {
+            sqlx::query("DELETE FROM notification_settings WHERE user_id = $1 AND target_id = $2")
+                .bind(user)
+                .bind(setting.target)
+                .execute(&self.pool)
+                .await?;
+        } else {
+            sqlx::query(
+                "INSERT INTO notification_settings (user_id, scope, target_id, level, muted_until) \
+                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, target_id) \
+                 DO UPDATE SET scope = EXCLUDED.scope, level = EXCLUDED.level, muted_until = EXCLUDED.muted_until",
+            )
+            .bind(user)
+            .bind(setting.scope.db_str())
+            .bind(setting.target)
+            .bind(setting.level.map(Level::db_str))
+            .bind(setting.muted_until)
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
     }
 }
