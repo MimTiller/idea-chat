@@ -333,7 +333,7 @@ fn TextBody(#[prop(static)] channel: Id) -> Element {
     // Where unread began when the channel was opened: the "new" marker stays
     // put while you read, rather than vanishing the moment you are seen.
     let read_at_open = s.peek(|st| st.reads.get(&channel).and_then(|r| r.last_read));
-    let had_unread = s.peek(|st| st.unread(channel));
+    let had_unread = s.peek(|st| st.unread(channel, s.now()));
     let marker = if had_unread { read_at_open } else { None };
     let rows = {
         let s = s.clone();

@@ -350,7 +350,7 @@ fn Switcher() -> Element {
 fn HomeTile() -> Element {
     let s = store();
     let ui = s.ui();
-    let badge = memo(move || s.read(|st| st.home_badge()));
+    let badge = memo(move || s.read(|st| st.home_badge(s.now())));
     let here = memo(move || ui.place.get().space().is_none());
     ui! {
         view(style = TileWrap()) {
@@ -375,7 +375,7 @@ fn SpaceTile(#[prop(static)] space: Id) -> Element {
     };
     let badge = {
         let s = s.clone();
-        memo(move || s.read(|st| st.space_badge(space)))
+        memo(move || s.read(|st| st.space_badge(space, s.now())))
     };
     // Whether the person's call is in this space: the switcher marks it, so
     // they can find their way back.
@@ -472,7 +472,7 @@ fn ConversationRow(#[prop(static)] channel: Id) -> Element {
                     Some(p) => st.status_text(p).map(str::to_string).unwrap_or_default(),
                     None => format!("{} members", c.members.len()),
                 };
-                Some((st.title(c), partner, sub, st.unread(channel), st.mentions(channel)))
+                Some((st.title(c), partner, sub, st.unread(channel, s.now()), st.mentions(channel, s.now())))
             })
         })
     };
@@ -727,8 +727,8 @@ fn ChannelLine(#[prop(static)] space: Id, #[prop(static)] channel: Id) -> Elemen
                 name: c.name.clone(),
                 kind: c.kind,
                 access: st.access(channel),
-                unread: st.unread(channel),
-                mentions: st.mentions(channel),
+                unread: st.unread(channel, s.now()),
+                mentions: st.mentions(channel, s.now()),
                 muted: st.muted.contains(&channel),
                 in_call: st.in_call(channel).len(),
             })
@@ -773,7 +773,7 @@ stylesheet! {
 fn ThreadLine(#[prop(static)] space: Id, #[prop(static)] channel: Id) -> Element {
     let s = store();
     let ui = s.ui();
-    let view = memo(move || s.read(|st| st.channels.get(&channel).map(|c| (c.name.clone(), st.unread(channel), st.mentions(channel)))));
+    let view = memo(move || s.read(|st| st.channels.get(&channel).map(|c| (c.name.clone(), st.unread(channel, s.now()), st.mentions(channel, s.now())))));
     let here = memo(move || ui.place.get().channel() == Some(channel));
     let bright = memo(move || view.get().is_some_and(|v| v.1));
     ui! {
