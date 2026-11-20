@@ -2,7 +2,6 @@
 //! group conversations.
 
 use chat_model::{Channel, ChannelKind, Id, Overwrite};
-use std::collections::BTreeMap;
 use sqlx::{Postgres, Transaction};
 use time::OffsetDateTime;
 

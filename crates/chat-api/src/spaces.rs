@@ -28,14 +28,14 @@ mod body {
     /// Restate the space's whole custom emoji set to everyone in it, so new
     /// `:name:` pictures land on every connection.
     pub async fn publish_emoji(space: Id) {
-        let emoji = app().db.emoji(space).await.map(|v| v.into_iter().cloned().collect()).unwrap_or_default();
+        let emoji = app().db.emoji(space).await.unwrap_or_default();
         app().bus.publish(vec![space_topic(space)], Event::EmojiChanged { space, emoji }).await;
     }
 
     /// Restate the space's whole sticker set to everyone in it, so new
     /// stickers land on every connection.
     pub async fn publish_stickers(space: Id) {
-        let stickers = app().db.stickers(space).await.map(|v| v.into_iter().cloned().collect()).unwrap_or_default();
+        let stickers = app().db.stickers(space).await.unwrap_or_default();
         app().bus.publish(vec![space_topic(space)], Event::StickersChanged { space, stickers }).await;
     }
 
@@ -351,11 +351,11 @@ pub async fn create_emoji(space: Id, name: String, upload: Id, user: Auth<Princi
         return Err(forbidden("Only those who manage custom emoji can add one."));
     }
     if !expressions::emoji_name_ok(&name) {
-        return Err(invalid("name")("An emoji name is 2-32 letters, digits or underscores."));
+        return Err(invalid("name")("An emoji name is 2-32 letters, digits or underscores.".to_string()));
     }
     let a = app();
-    if !body::upload_image_ok(upload, me, EMOJI_MAX_BYTES) {
-        return Err(invalid("upload")("Upload an image for the emoji first."));
+    if !body::upload_image_ok(upload, me, EMOJI_MAX_BYTES).await {
+        return Err(invalid("upload")("Upload an image for the emoji first.".to_string()));
     }
     if a.db.emoji_count(space).await.map_err(db)? >= EMOJI_MAX as i64 {
         return Err(forbidden("The space is at its emoji limit."));
@@ -381,7 +381,7 @@ pub async fn rename_emoji(space: Id, emoji: Id, name: String, user: Auth<Princip
         return Err(forbidden("That emoji doesn't exist."));
     }
     if !expressions::emoji_name_ok(&name) {
-        return Err(invalid("name")("An emoji name is 2-32 letters, digits or underscores."));
+        return Err(invalid("name")("An emoji name is 2-32 letters, digits or underscores.".to_string()));
     }
     app().db.rename_emoji(space, emoji, &name).await.map_err(db)?;
     body::publish_emoji(space).await;
@@ -420,14 +420,14 @@ pub async fn create_sticker(space: Id, name: String, description: String, upload
         return Err(forbidden("Only those who manage stickers can add one."));
     }
     if !expressions::sticker_name_ok(&name) {
-        return Err(invalid("name")("A sticker name is 2-30 characters, no < > or : and no blank padding."));
+        return Err(invalid("name")("A sticker name is 2-30 characters, no < > or : and no blank padding.".to_string()));
     }
     if !expressions::sticker_description_ok(&description) {
-        return Err(invalid("description")("A sticker description is at most 100 characters."));
+        return Err(invalid("description")("A sticker description is at most 100 characters.".to_string()));
     }
     let a = app();
-    if !body::upload_image_ok(upload, me, STICKER_MAX_BYTES) {
-        return Err(invalid("upload")("Upload an image for the sticker first."));
+    if !body::upload_image_ok(upload, me, STICKER_MAX_BYTES).await {
+        return Err(invalid("upload")("Upload an image for the sticker first.".to_string()));
     }
     if a.db.sticker_count(space).await.map_err(db)? >= STICKER_MAX as i64 {
         return Err(forbidden("The space is at its sticker limit."));
@@ -453,7 +453,7 @@ pub async fn rename_sticker(space: Id, sticker: Id, name: String, user: Auth<Pri
         return Err(forbidden("That sticker doesn't exist."));
     }
     if !expressions::sticker_name_ok(&name) {
-        return Err(invalid("name")("A sticker name is 2-30 characters, no < > or : and no blank padding."));
+        return Err(invalid("name")("A sticker name is 2-30 characters, no < > or : and no blank padding.".to_string()));
     }
     app().db.rename_sticker(space, sticker, &name).await.map_err(db)?;
     body::publish_stickers(space).await;
