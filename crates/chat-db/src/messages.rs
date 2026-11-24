@@ -67,7 +67,6 @@ struct MessageRow {
     mentions: Vec<Id>,
     mentions_everyone: bool,
     sticker: Option<Id>,
-
     mention_roles: Vec<Id>,
     thread_id: Option<Id>,
     created_at: OffsetDateTime,
@@ -75,9 +74,7 @@ struct MessageRow {
 }
 
 const MESSAGE_COLS: &str = "id, channel_id, author_id, kind, detail, body, reply_to, mentions, mentions_everyone, \
-                            sticker, thread_id, created_at, edited_at";
-
-                            mention_roles, thread_id, created_at, edited_at";
+                            sticker, mention_roles, thread_id, created_at, edited_at";
 
 fn kind_parts(kind: &MessageKind) -> (&'static str, Option<serde_json::Value>) {
     match kind {
@@ -193,7 +190,6 @@ impl Db {
                 mentions: r.mentions,
                 mentions_everyone: r.mentions_everyone,
                 sticker: r.sticker,
-
                 mention_roles: r.mention_roles,
                 at: millis(r.created_at),
                 edited_at: opt_millis(r.edited_at),
@@ -219,11 +215,8 @@ impl Db {
         let id = crate::new_id();
         let (kind, detail) = kind_parts(&new.kind);
         sqlx::query(
-            "INSERT INTO messages (id, channel_id, author_id, kind, detail, body, reply_to, mentions, mentions_everyone, sticker) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-
             "INSERT INTO messages (id, channel_id, author_id, kind, detail, body, reply_to, mentions, mentions_everyone, \
-             mention_roles) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+             sticker, mention_roles) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(id)
         .bind(new.channel)
@@ -235,7 +228,6 @@ impl Db {
         .bind(&new.mentions)
         .bind(new.everyone)
         .bind(new.sticker)
-
         .bind(&new.mention_roles)
         .execute(&mut *tx)
         .await?;

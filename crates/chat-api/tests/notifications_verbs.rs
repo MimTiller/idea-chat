@@ -32,6 +32,8 @@ fn space(people: &[(u128, Vec<u128>)]) -> Space {
         roles: BTreeMap::new(),
         categories: vec![],
         created_at: 0,
+        emoji: BTreeMap::new(),
+        stickers: BTreeMap::new(),
     }
 }
 

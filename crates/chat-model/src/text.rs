@@ -762,10 +762,10 @@ mod tests {
         let colon_token: Vec<char> = "<:wave:123>".chars().collect();
         assert!(token_at(&colon_token).is_none(),
             "a colon token is not a mention token");
-        let r = resolve_mentions("ping @ana :wave:", |h| (h == "ana").then(|| Id::nil()));
+        let r = resolve_mentions("ping @ana :wave:", |h| (h == "ana").then(|| Id::nil()), |_| None);
         assert!(r.body.ends_with(":wave:"), "a :name: is left as plain text");
         assert_eq!(r.body, format!("ping <@{}> :wave:", Id::nil()), "only the handle resolves; the emoji stays");
-        let with_colons = resolve_mentions("<:party:cat>", |h| (h == "party").then(|| Id::nil()));
+        let with_colons = resolve_mentions("<:party:cat>", |h| (h == "party").then(|| Id::nil()), |_| None);
         assert_eq!(with_colons.body, "<:party:cat>", "the emoji token survives whole");
         assert!(with_colons.mentions.is_empty(), "it is not a mention");
         assert!(!with_colons.everyone, "and not @everyone");

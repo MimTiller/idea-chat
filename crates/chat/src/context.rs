@@ -453,7 +453,6 @@ fn empty_message() -> Message {
         mentions: vec![],
         mentions_everyone: false,
         sticker: None,
-
         mention_roles: vec![],
         at: 0,
         edited_at: None,

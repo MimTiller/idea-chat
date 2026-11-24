@@ -43,7 +43,7 @@ fn space(roles: &[(u128, u64, i32)], members: &[(u128, Vec<u128>)], everyone: u6
         members: ms,
         roles: roles
             .iter()
-            .map(|(r, p, pos)| (id(*r), Role { id: id(*r), name: "r".into(), permissions: *p, position: *pos }))
+            .map(|(r, p, pos)| (id(*r), Role { id: id(*r), name: "r".into(), permissions: *p, position: *pos, colour: None, mentionable: false }))
             .collect::<BTreeMap<_, _>>(),
         categories: vec![],
         created_at: 0,
