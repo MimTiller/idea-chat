@@ -543,7 +543,7 @@ new message reopens it; at most one direct exists per pair, found by
 
 ### 3.10 Chat tier: messages, attachments, reactions, read state, mutes
 
-Tables: `messages`, `attachments`, `reactions`, `read_states`, `mutes`.
+Tables: `messages`, `attachments`, `reactions`, `pins`, `read_states`, `mutes`.
 
 ```sql
 CREATE TABLE messages (
@@ -589,6 +589,14 @@ CREATE TABLE reactions (
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, user_id, emoji)
 );
+
+CREATE TABLE pins (
+    message_id  uuid NOT NULL PRIMARY KEY REFERENCES messages (id) ON DELETE CASCADE,
+    channel_id  uuid NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
+    pinned_by   uuid NOT NULL REFERENCES users (id),
+    pinned_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX pins_channel ON pins (channel_id, pinned_at DESC);
 
 CREATE TABLE read_states (
     user_id    uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,

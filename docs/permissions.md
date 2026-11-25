@@ -165,7 +165,7 @@ cut them; space-wide acts consult the plain effective set via `can`/`can_act`.
 | EditOwnMessage | 2 | messages | Change one of their own messages. | `perms.rs::can_edit_message` (~448) → `chat-api/src/messages.rs::edit` (~186). The bit is also in the `DEFAULT_EVERYONE` baseline. Test: `own_message_edits_never_reach_another_author` (`roles_verbs.rs`). |
 | DeleteOwnMessage | 3 | messages | Delete one of their own messages. | **Enforced now.** `perms.rs::can_delete_message` (~440) checks `can_at(…, DeleteOwnMessage)` when the user is the author — the old snapshot's disagreement between code and the bit's doc comment is gone: the code does what the comment says. Server site `chat-api/src/messages.rs::delete` (~226); client site `crates/chat/src/message.rs` (~646, RowTools) hides the delete button by the same call; test `editing_and_deleting_their_own_message_now_needs_their_bits` (`roles_verbs.rs`). |
 | DeleteOthersMessage | 4 | messages | Delete someone else's message. | `perms.rs::can_delete_message` second clause (`can(s, user, DeleteOthersMessage)`) → `chat-api/src/messages.rs::delete` (~226); test `deleting_another_persons_message_needs_the_delete_others_bit`. |
-| ManagePins | 5 | messages | Pin and unpin messages. | **not enforced yet** — no pin/unpin endpoint exists in `chat-api` at all (the word "pin" appears there only as `std::pin` and `Up::Ping`); the bit appears as data in `chat-db/tests/db.rs` (~172, a role carrying it). |
+| ManagePins | 5 | messages | Pin and unpin messages. | **Enforced now.** `perms.rs::can_at(…, ManagePins)` at the message's channel in `chat-api/src/messages.rs::pin` and `unpin`, after read/not-archived; `pin` also refuses past the 50-pin cap (`messages.rs::PINS_MAX`). `pins` and `pin_count` (list verbs) need only read access, not the bit. Tests `pin_needs_manage_pins` and `pins_are_capped_at_fifty` (`chat-api/tests/pin_verbs.rs`). |
 | AddReaction | 6 | messages | React to messages. | `perms.rs::can_react` (~376) — actually enforced directly at `chat-api/src/messages.rs::react` (~254: `can_at(…, AddReaction)` after read/not-archived). Test `reacting_needs_the_react_bit_at_the_channel`. |
 | MentionEveryone | 7 | messages | Address a message to the whole space (`@everyone`). | `chat-api/src/messages.rs::send` (~142): the `everyone` flag is dropped unless `perms::can(…, MentionEveryone)` in a space (conversations allow it outright). `edit` (~210) keeps the original message's everyone flag rather than granting a new one — no permission call. Not in the baseline. |
 | AttachFile | 8 | messages | Upload an attachment with a message. | `chat-api/src/messages.rs::send` (~117): non-empty attachments need `can_at(…, AttachFile)`; test `attaching_a_file_needs_the_attach_bit`. `perms.rs::can_attach` (~382) is the shared copy; the upload itself is not the act — the check runs where the message lands. |
@@ -235,6 +235,19 @@ viewers whose effective set covers `view` (`topics_for`/`topics_of`), while
 ungated channels ride the space topic. `update_channel`'s comment
 (channels.rs ~122) states the contract: settings go to everyone who knows
 the channel; messages only to who may read them.
+
+## Message verbs (`chat-api/src/messages.rs`)
+
+- `pin(message)` / `unpin(message)` — toggle one pin on a message. Read
+  access (not archived) plus `ManagePins` at the message's channel.
+  `pin` refuses when the channel is at its cap, 50 pins (`PINS_MAX`).
+- `pins(channel) -> Vec<Message>` — the channel's pinned messages, newest
+  pin first. Needs only read access, not `ManagePins`.
+- `pin_count(channel) -> i64` — how many pins the channel has. Needs only
+  read access.
+- No live event: the app lists pins on demand.
+
+Gates tested as pure functions in `chat-api/tests/pin_verbs.rs`.
 
 ## Role and moderation verbs
 
@@ -404,9 +417,6 @@ named-role equivalent yet; that is a follow-up (see Not done yet).
 
 ## Not done yet
 
-- **ManagePins cannot be enforced:** no pin/unpin endpoint exists anywhere
-  in `chat-api`, so there is no act to gate (the bit is only ever data,
-  e.g. the role in `chat-db/tests/db.rs` ~172).
 - **VoiceForceMute and VoiceMoveMember** have no server site: no verb in
   this stack forces a mute on someone else or moves a member between calls.
   The bits are defined, deliberately unchecked, and documented as such
@@ -431,7 +441,7 @@ named-role equivalent yet; that is a follow-up (see Not done yet).
 - The delivery-vs-overwrite gap noted above (`topics_for`/`topics_of` gate
   on the plain effective set).
 
-- Pins, force-mute and move-member have nothing to gate (above).
+- Force-mute and move-member have nothing to gate (above).
 - There is no overwrite for the everyone baseline itself, only per role: "only Moderators post
   in #announcements" works in a space whose baseline lacks `SendMessage`, not in an ordinary one.
 - No client screens for roles, the baseline, overwrites, ban or timeout; the
