@@ -37,6 +37,21 @@ pub enum Scope {
 /// The most emoji kinds on one message.
 pub const REACTION_KINDS: i64 = 20;
 
+/// The most pins on one channel.
+pub const PINS_MAX: i64 = 50;
+
+/// Whether a channel can take one more pin.
+pub fn pin_room(current: i64) -> bool {
+    current < PINS_MAX
+}
+
+/// The order a channel's pins list comes back in: newest pin first.
+pub fn pin_order(pinned: &[(Id, i64)]) -> Vec<Id> {
+    let mut v = pinned.to_vec();
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    v.into_iter().map(|(m, _at)| m).collect()
+}
+
 /// A page of a channel's history.
 #[server]
 pub async fn history(channel: Id, window: Window, user: Auth<Principal>) -> Answer<Page> {
@@ -302,6 +317,71 @@ pub async fn react(id: Id, emoji: String, add: bool, user: Auth<Principal>) -> A
             .await;
     }
     Ok(())
+}
+
+/// Pin a message.
+#[server(tags(limit = "60/min"))]
+pub async fn pin(id: Id, user: Auth<Principal>) -> Answer<()> {
+    use crate::channels::body::open;
+    use crate::srv::{app, db, forbidden};
+    let a = app();
+    let m = a.db.message(id).await.map_err(db)?;
+    let (me, c, access, space) = open(&user.0, m.channel).await?;
+    if !access.can_read() || c.archived {
+        return Err(forbidden("You can't pin here."));
+    }
+    if !chat_model::perms::can_at(&c, space.as_ref(), me, chat_model::perms::Permission::ManagePins) {
+        return Err(forbidden("You can't pin here."));
+    }
+    if !pin_room(a.db.pin_count(m.channel).await.map_err(db)?) {
+        return Err(forbidden("This channel has all the pins it can take."));
+    }
+    a.db.pin(id, me).await.map_err(db)?;
+    Ok(())
+}
+
+/// Take a pin back.
+#[server(tags(limit = "60/min"))]
+pub async fn unpin(id: Id, user: Auth<Principal>) -> Answer<()> {
+    use crate::channels::body::open;
+    use crate::srv::{app, db, forbidden};
+    let a = app();
+    let m = a.db.message(id).await.map_err(db)?;
+    let (me, c, access, space) = open(&user.0, m.channel).await?;
+    if !access.can_read() || c.archived {
+        return Err(forbidden("You can't pin here."));
+    }
+    if !chat_model::perms::can_at(&c, space.as_ref(), me, chat_model::perms::Permission::ManagePins) {
+        return Err(forbidden("You can't pin here."));
+    }
+    a.db.unpin(id).await.map_err(db)?;
+    Ok(())
+}
+
+/// The pinned messages of a channel, newest pin first.
+#[server(tags(limit = "60/min"))]
+pub async fn pins(channel: Id, user: Auth<Principal>) -> Answer<Vec<Message>> {
+    use crate::channels::body::open;
+    use crate::srv::{app, db, forbidden};
+    let a = app();
+    let (_, _, access, _) = open(&user.0, channel).await?;
+    if !access.can_read() {
+        return Err(forbidden("You can't read these pins."));
+    }
+    a.db.pins_of(channel).await.map_err(db)
+}
+
+/// How many pins a channel has.
+#[server(tags(limit = "60/min"))]
+pub async fn pin_count(channel: Id, user: Auth<Principal>) -> Answer<i64> {
+    use crate::channels::body::open;
+    use crate::srv::{app, db, forbidden};
+    let a = app();
+    let (_, _, access, _) = open(&user.0, channel).await?;
+    if !access.can_read() {
+        return Err(forbidden("You can't read these pins."));
+    }
+    a.db.pin_count(channel).await.map_err(db)
 }
 
 /// Mark a channel read up to a message.
