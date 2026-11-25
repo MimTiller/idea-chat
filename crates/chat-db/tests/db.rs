@@ -559,3 +559,30 @@ async fn notification_settings_store_replace_and_clear() {
     db.set_muted(ana, space.id, true).await.unwrap();
     assert_eq!(db.mutes_of(ana).await.unwrap(), vec![space.id]);
 }
+
+#[tokio::test]
+async fn pins_are_pinned_listed_counted_and_removed() {
+    let Some(db) = db().await else { return };
+    let ana = account(&db, "ana").await;
+    let (_, channels) = db.create_space(&NewSpace { name: "Club".into(), owner: ana }).await.unwrap();
+    let general = channels.iter().find(|c| c.kind == ChannelKind::Text).unwrap().id;
+    let first = db.post(&text(general, ana, "one")).await.unwrap().message.id;
+    let second = db.post(&text(general, ana, "two")).await.unwrap().message.id;
+
+    assert!(db.pin(first, ana).await.unwrap(), "the first pin is new");
+    assert!(db.pin(second, ana).await.unwrap());
+    assert!(!db.pin(first, ana).await.unwrap(), "pinning twice changes nothing");
+    assert_eq!(db.pin_count(general).await.unwrap(), 2);
+    // Newest pin first: second was pinned after first.
+    assert_eq!(db.pins_of(general).await.unwrap().iter().map(|m| m.id).collect::<Vec<_>>(), vec![second, first]);
+
+    assert!(db.unpin(first).await.unwrap());
+    assert!(!db.unpin(first).await.unwrap(), "unpinning twice changes nothing");
+    assert_eq!(db.pin_count(general).await.unwrap(), 1);
+    assert_eq!(db.pins_of(general).await.unwrap().iter().map(|m| m.id).collect::<Vec<_>>(), vec![second]);
+
+    // Deleting the pinned message takes its pin with it.
+    db.delete_message(second).await.unwrap();
+    assert_eq!(db.pin_count(general).await.unwrap(), 0);
+    assert!(db.pins_of(general).await.unwrap().is_empty());
+}

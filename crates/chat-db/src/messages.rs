@@ -472,6 +472,53 @@ impl Db {
             .await?)
     }
 
+    /// Pin a message, for `by`. Returns whether the pin was newly added.
+    pub async fn pin(&self, message: Id, by: Id) -> Result<bool> {
+        let channel = sqlx::query_scalar::<_, Id>("SELECT channel_id FROM messages WHERE id = $1")
+            .bind(message)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(Error::NotFound)?;
+        let done = sqlx::query(
+            "INSERT INTO pins (message_id, channel_id, pinned_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        )
+        .bind(message)
+        .bind(channel)
+        .bind(by)
+        .execute(&self.pool)
+        .await?;
+        Ok(done.rows_affected() > 0)
+    }
+
+    /// Take a pin back. Returns whether anything changed.
+    pub async fn unpin(&self, message: Id) -> Result<bool> {
+        Ok(sqlx::query("DELETE FROM pins WHERE message_id = $1")
+            .bind(message)
+            .execute(&self.pool)
+            .await?
+            .rows_affected()
+            > 0)
+    }
+
+    /// The pinned messages of a channel, newest pin first.
+    pub async fn pins_of(&self, channel: Id) -> Result<Vec<Message>> {
+        let rows: Vec<MessageRow> = sqlx::query_as(&format!(
+            "SELECT {MESSAGE_COLS} FROM messages WHERE channel_id = $1 AND id IN (SELECT message_id FROM pins WHERE channel_id = $1) ORDER BY (SELECT pinned_at FROM pins WHERE message_id = messages.id) DESC"
+        ))
+        .bind(channel)
+        .fetch_all(&self.pool)
+        .await?;
+        self.hydrate(rows).await
+    }
+
+    /// How many pins a channel has, to cap them.
+    pub async fn pin_count(&self, channel: Id) -> Result<i64> {
+        Ok(sqlx::query_scalar("SELECT count(*) FROM pins WHERE channel_id = $1")
+            .bind(channel)
+            .fetch_one(&self.pool)
+            .await?)
+    }
+
     /// Mark a channel read up to `last_read`. Never moves backwards; returns
     /// where the marker now is.
     pub async fn mark_read(&self, user: Id, channel: Id, last_read: Id) -> Result<Id> {
