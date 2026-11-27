@@ -34,6 +34,8 @@ pub const NAME_MAX: usize = 64;
 pub const ABOUT_MAX: usize = 300;
 /// The longest custom status line.
 pub const STATUS_MAX: usize = 120;
+/// The longest cosmetic id (an avatar decoration or a profile effect).
+pub const COSMETIC_MAX: usize = 40;
 /// The shortest password accepted.
 pub const PASSWORD_MIN: usize = 10;
 
@@ -82,6 +84,29 @@ pub fn channel_name(raw: &str) -> Result<String, Invalid> {
         out.push_str(word);
     }
     bounded(&out, 1, NAME_MAX, "A channel name")
+}
+
+/// What a verb's cosmetic argument means: `None` keeps the field, an empty
+/// string clears it, anything else is the id after validation.
+pub fn cosmetic_update(raw: Option<&str>) -> Result<Option<Option<String>>, Invalid> {
+    match raw {
+        None => Ok(None),
+        Some(s) if s.is_empty() => Ok(Some(None)),
+        Some(s) => Ok(Some(Some(cosmetic_id(s)?))),
+    }
+}
+
+/// A cosmetic id: 1–40 characters of `a-z`, `0-9`, `-` and `_`. Stored as
+/// given, so a space or an uppercase letter is refused.
+pub fn cosmetic_id(raw: &str) -> Result<String, Invalid> {
+    let n = raw.chars().count();
+    if n < 1 || n > COSMETIC_MAX {
+        return Err(format!("A cosmetic id is 1 to {COSMETIC_MAX} characters."));
+    }
+    if !raw.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_') {
+        return Err("A cosmetic id may use lowercase letters, numbers, dashes and underscores.".into());
+    }
+    Ok(raw.to_string())
 }
 
 /// A topic, bio or other short free text; may be empty.

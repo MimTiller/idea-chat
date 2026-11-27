@@ -304,6 +304,22 @@ pub async fn update_profile(display_name: Option<String>, bio: Option<String>, u
     Ok(updated)
 }
 
+/// Change the cosmetic ids others see on a profile: an avatar decoration and
+/// a profile effect. Per argument, `None` keeps the field, `""` clears it,
+/// anything else sets the id.
+#[server]
+pub async fn set_cosmetics(avatar_decoration: Option<String>, profile_effect: Option<String>, user: Auth<Principal>) -> Answer<User> {
+    use chat_model::text;
+
+    use crate::srv::{app, db, invalid, me};
+    let account = me(&user.0).await?;
+    let dec = text::cosmetic_update(avatar_decoration.as_deref()).map_err(invalid("avatar_decoration"))?;
+    let eff = text::cosmetic_update(profile_effect.as_deref()).map_err(invalid("profile_effect"))?;
+    let updated = app().db.set_cosmetics(account.id(), dec.as_ref().map(|o| o.as_deref()), eff.as_ref().map(|o| o.as_deref())).await.map_err(db)?;
+    body::announce_profile(updated.clone()).await;
+    Ok(updated)
+}
+
 /// Change the username.
 #[server(tags(limit = "10/min"))]
 pub async fn set_handle(handle: String, user: Auth<Principal>) -> Answer<User> {

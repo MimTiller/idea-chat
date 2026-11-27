@@ -340,6 +340,28 @@ impl Db {
         Ok(row.into())
     }
 
+    /// Set or clear the two cosmetic ids. Each field left `None` is kept;
+    /// `Some(None)` removes it.
+    pub async fn set_cosmetics(
+        &self,
+        user: Id,
+        avatar_decoration: Option<Option<&str>>,
+        profile_effect: Option<Option<&str>>,
+    ) -> Result<User> {
+        let row: UserRow = sqlx::query_as(&format!(
+            "UPDATE users SET avatar_decoration = CASE WHEN $2 THEN $3 ELSE avatar_decoration END, \
+             profile_effect = CASE WHEN $4 THEN $5 ELSE profile_effect END WHERE id = $1 RETURNING {USER_COLS}"
+        ))
+        .bind(user)
+        .bind(avatar_decoration.is_some())
+        .bind(avatar_decoration.flatten())
+        .bind(profile_effect.is_some())
+        .bind(profile_effect.flatten())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.into())
+    }
+
     pub async fn set_handle(&self, user: Id, handle: &str) -> Result<User> {
         let row: UserRow = sqlx::query_as(&format!("UPDATE users SET handle = $2 WHERE id = $1 RETURNING {USER_COLS}"))
             .bind(user)
