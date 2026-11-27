@@ -355,6 +355,8 @@ CREATE TABLE users (
     display_name      text NOT NULL,
     avatar            text,
     bio               text NOT NULL DEFAULT '',
+    avatar_decoration text,
+    profile_effect    text,
     status_presence   text NOT NULL DEFAULT 'online'
                       CHECK (status_presence IN ('online', 'idle', 'busy', 'offline')),
     status_text       text,
@@ -364,6 +366,15 @@ CREATE TABLE users (
 );
 CREATE UNIQUE INDEX users_email ON users (lower(email));
 CREATE UNIQUE INDEX users_handle ON users (lower(handle));
+
+`avatar_decoration` and `profile_effect` hold cosmetic ids the app draws on a
+person's avatar and profile card; `NULL` means none. `set_cosmetics(
+avatar_decoration, profile_effect)` writes them: per argument, `None` keeps the
+field as stored, `""` clears it, and anything else sets the id — 1 to 40
+characters of `a-z`, `0-9`, `-` and `_` (`text::cosmetic_id`), refused otherwise.
+The verb returns the updated `User` and announces the profile, so everyone who
+can see the person sees it. Tests: `cosmetics_verbs.rs` (the argument decision)
+and `cosmetics_are_set_kept_cleared_and_seen_by_others` (`chat-db/tests/db.rs`).
 
 CREATE TABLE email_codes (
     user_id    uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,

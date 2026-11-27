@@ -595,3 +595,33 @@ async fn a_new_user_reads_back_with_no_cosmetics() {
     assert_eq!(u.avatar_decoration, None);
     assert_eq!(u.profile_effect, None);
 }
+
+#[tokio::test]
+async fn cosmetics_are_set_kept_cleared_and_seen_by_others() {
+    let Some(db) = db().await else { return };
+    let ana = account(&db, "ana").await;
+    let bob = account(&db, "bob").await;
+
+    // A set returns the user with it.
+    let u = db.set_cosmetics(ana, Some(Some("sparkle")), None).await.unwrap();
+    assert_eq!(u.avatar_decoration, Some("sparkle".into()));
+    assert_eq!(u.profile_effect, None);
+
+    // Setting only the effect keeps the decoration.
+    let u = db.set_cosmetics(ana, None, Some(Some("glow"))).await.unwrap();
+    assert_eq!(u.avatar_decoration, Some("sparkle".into()));
+    assert_eq!(u.profile_effect, Some("glow".into()));
+
+    // Some(None) clears one field and leaves the other.
+    let u = db.set_cosmetics(ana, Some(None), None).await.unwrap();
+    assert_eq!(u.avatar_decoration, None);
+    assert_eq!(u.profile_effect, Some("glow".into()));
+
+    // A second person reading Ana through the same read sees it.
+    db.set_cosmetics(ana, Some(Some("wave_2")), None).await.unwrap();
+    let seen = db.user_by_handle("bob").await.unwrap().unwrap();
+    assert_eq!(seen.id, bob, "the reader is a different account");
+    let read = db.user_by_handle("ana").await.unwrap().unwrap();
+    assert_eq!(read.avatar_decoration, Some("wave_2".into()));
+    assert_eq!(read.profile_effect, Some("glow".into()));
+}
