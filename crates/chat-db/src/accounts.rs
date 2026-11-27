@@ -121,6 +121,8 @@ impl AccountRow {
                     display_name: self.display_name,
                     avatar: self.avatar,
                     bio: self.bio,
+                    avatar_decoration: None,
+                    profile_effect: None,
                 },
                 email: self.email,
                 status: Status { presence: presence_of(&self.status_presence), text: self.status_text },
@@ -129,7 +131,7 @@ impl AccountRow {
     }
 }
 
-const ACCOUNT_COLS: &str = "id, email, password_hash, handle, display_name, avatar, bio, status_presence, \
+const ACCOUNT_COLS: &str = "id, email, password_hash, handle, display_name, avatar, bio, avatar_decoration, profile_effect, status_presence, \
                             status_text, email_verified_at, auth_epoch";
 
 #[derive(sqlx::FromRow)]
@@ -139,15 +141,17 @@ pub(crate) struct UserRow {
     pub display_name: String,
     pub avatar: Option<String>,
     pub bio: String,
+    pub avatar_decoration: Option<String>,
+    pub profile_effect: Option<String>,
 }
 
 impl From<UserRow> for User {
     fn from(r: UserRow) -> User {
-        User { id: r.id, handle: r.handle, display_name: r.display_name, avatar: r.avatar, bio: r.bio }
+        User { id: r.id, handle: r.handle, display_name: r.display_name, avatar: r.avatar, bio: r.bio, avatar_decoration: r.avatar_decoration, profile_effect: r.profile_effect }
     }
 }
 
-pub(crate) const USER_COLS: &str = "id, handle, display_name, avatar, bio";
+pub(crate) const USER_COLS: &str = "id, handle, display_name, avatar, bio, avatar_decoration, profile_effect";
 
 #[derive(sqlx::FromRow)]
 struct DeviceRow {

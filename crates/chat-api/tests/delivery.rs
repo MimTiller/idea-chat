@@ -35,6 +35,8 @@ fn user(n: u128, name: &str) -> User {
         display_name: name.into(),
         avatar: None,
         bio: String::new(),
+        avatar_decoration: None,
+        profile_effect: None,
     }
 }
 

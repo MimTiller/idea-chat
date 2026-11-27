@@ -31,6 +31,12 @@ pub struct User {
     /// An uploaded picture's URL; `None` draws initials.
     pub avatar: Option<String>,
     pub bio: String,
+    /// The id of a cosmetic the app draws; `None` is none.
+    #[serde(default)]
+    pub avatar_decoration: Option<String>,
+    /// The id of a cosmetic the app draws; `None` is none.
+    #[serde(default)]
+    pub profile_effect: Option<String>,
 }
 
 impl User {
@@ -559,4 +565,33 @@ pub struct KeyRequest {
     pub user: Id,
     pub device: Id,
     pub public_key: String,
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_json_without_the_cosmetics_decodes_as_none() {
+        let u: User = serde_json::from_str(
+            r#"{"id":"00000000-0000-0000-0000-000000000001","handle":"ana","display_name":"Ana","avatar":null,"bio":"hi"}"#,
+        )
+        .unwrap();
+        assert_eq!(u.avatar_decoration, None);
+        assert_eq!(u.profile_effect, None);
+    }
+
+    #[test]
+    fn the_cosmetics_round_trip() {
+        let u = User {
+            id: Id::from_u128(1),
+            handle: "ana".into(),
+            display_name: "Ana".into(),
+            avatar: None,
+            bio: String::new(),
+            avatar_decoration: Some("sparkle".into()),
+            profile_effect: Some("glow".into()),
+        };
+        let back: User = serde_json::from_str(&serde_json::to_string(&u).unwrap()).unwrap();
+        assert_eq!(back, u);
+    }
 }

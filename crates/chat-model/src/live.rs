@@ -781,7 +781,7 @@ mod tests {
     }
 
     fn user(n: u128, name: &str) -> User {
-        User { id: id(n), handle: name.to_lowercase(), display_name: name.into(), avatar: None, bio: String::new() }
+        User { id: id(n), handle: name.to_lowercase(), display_name: name.into(), avatar: None, bio: String::new(), avatar_decoration: None, profile_effect: None }
     }
 
     fn me(n: u128) -> Me {

@@ -586,3 +586,12 @@ async fn pins_are_pinned_listed_counted_and_removed() {
     assert_eq!(db.pin_count(general).await.unwrap(), 0);
     assert!(db.pins_of(general).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_new_user_reads_back_with_no_cosmetics() {
+    let Some(db) = db().await else { return };
+    let ana = account(&db, "ana").await;
+    let u = db.user(ana).await.unwrap();
+    assert_eq!(u.avatar_decoration, None);
+    assert_eq!(u.profile_effect, None);
+}

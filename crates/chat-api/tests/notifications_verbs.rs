@@ -119,7 +119,7 @@ fn the_restatement_reaches_the_persons_own_connections_only() {
 
     let mut s = State {
         me: Some(chat_model::Me {
-            user: chat_model::User { id: id(1), handle: "me".into(), display_name: "Me".into(), avatar: None, bio: String::new() },
+            user: chat_model::User { id: id(1), handle: "me".into(), display_name: "Me".into(), avatar: None, bio: String::new(), avatar_decoration: None, profile_effect: None },
             email: "me@example.com".into(),
             status: chat_model::Status { presence: chat_model::Presence::Online, text: None },
         }),
